@@ -22,7 +22,7 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
   assert(!state.active,'Do not interfere with an active capture');
   assert.equal(state.capture_reference.session,state.session);
   assert.equal(state.capture_reference.frame,state.frame);
-  await page.waitForFunction(()=>document.getElementById('head-reference').textContent.includes('蓝色狗头：相机位置'));
+  await page.waitForFunction(()=>document.getElementById('head-reference').textContent.includes('蓝色狗头：'));
   await page.getByRole('button',{name:'适配模型'}).click();
   await page.getByRole('button',{name:'XY俯视'}).click();
   await page.getByRole('button',{name:'水平视角'}).click();

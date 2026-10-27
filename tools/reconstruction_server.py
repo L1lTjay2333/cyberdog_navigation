@@ -13,6 +13,20 @@ from reconstruction_core import StaticModel, MovingModel
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def capture_failure(stderr, error):
+    if 'port 22: Permission denied' in stderr:
+        return 'SSH网络连接被运行环境权限限制拒绝；请在允许局域网访问的环境启动建模服务（不是深度帧错误）'
+    if 'Permission denied (publickey' in stderr or 'bad permissions' in stderr:
+        return 'SSH密钥认证失败；请核对本机密钥路径、文件权限和已授权公钥'
+    if 'Host key verification failed' in stderr or 'REMOTE HOST IDENTIFICATION HAS CHANGED' in stderr:
+        return 'SSH主机身份校验失败；保留旧记录并先核对机器人身份'
+    if 'Connection timed out' in stderr or 'No route to host' in stderr or 'Connection refused' in stderr:
+        return 'SSH连接不可用；请核对机器人电源、IP和同一局域网'
+    if isinstance(error, BrokenPipeError):
+        return 'SSH采集进程提前退出；请查看本次会话stderr确认原因，未收到可融合数据'
+    return str(error)
+
+
 class Laboratory:
     def __init__(self):
         self.lock = threading.Lock()
@@ -105,9 +119,13 @@ class Laboratory:
                 if code and not self.stopped.is_set():
                     raise RuntimeError('相机订阅退出，请查看本次stderr；未操作机器人')
         except Exception as exc:
+            try:
+                details = (output/'stderr.txt').read_text(encoding='utf-8')[-4000:]
+            except OSError:
+                details = ''
             with self.lock:
                 if not self.stopped.is_set():
-                    self.error = str(exc)
+                    self.error = capture_failure(details, exc)
         finally:
             if watchdog:
                 watchdog.cancel()

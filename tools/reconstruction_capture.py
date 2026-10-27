@@ -99,7 +99,9 @@ try:
             counts['sent'] += 1
             last_sent = time.monotonic()
         if time.monotonic()-started > 6 and time.monotonic()-last_sent > 3:
-            emit({'event':'error','message':'Depth/TF stream has no matching frames; stop static capture','counts':counts,'control_requests':0})
+            message = ('深度相机没有输出图像；请检查原厂相机状态，先不要移动' if counts['images'] == 0 else
+                       '收到深度图但没有同时间的vodom位姿；请先在导航页启动新场地扫描，先不要移动')
+            emit({'event':'error','message':message,'counts':counts,'control_requests':0})
             break
     emit({'event': 'finished', 'counts': counts, 'queue_dropped': queue.dropped,
           'queue_expired': queue.expired, 'queue_pending': len(queue.pending), 'control_requests': 0})

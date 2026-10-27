@@ -11,6 +11,21 @@ import reconstruction_server as server
 
 
 class ServiceTests(unittest.TestCase):
+    def test_network_denial_is_not_reported_as_generic_broken_pipe(self):
+        explain=getattr(server,'capture_failure',None)
+        self.assertIsNotNone(explain,'SSH diagnostics must preserve the cause')
+        message=explain('ssh: connect to host 192.168.1.123 port 22: Permission denied',BrokenPipeError(32,'Broken pipe'))
+        self.assertIn('网络连接',message)
+        self.assertNotIn('Broken pipe',message)
+        self.assertIn('权限',message)
+
+    def test_authentication_failure_is_separate_from_network_denial(self):
+        explain=getattr(server,'capture_failure',None)
+        self.assertIsNotNone(explain,'SSH diagnostics must preserve the cause')
+        message=explain('mi@192.168.1.123: Permission denied (publickey,password).',RuntimeError('SSH exit'))
+        self.assertIn('密钥',message)
+        self.assertNotIn('网络连接被',message)
+
     def request(self, origin, data, path='/start'):
         handler=object.__new__(server.Handler)
         raw=json.dumps(data).encode()

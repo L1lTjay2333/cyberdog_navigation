@@ -1,0 +1,7 @@
+{
+  "name": "cyberdog-reconstruction-web-runtime",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Isolated D-drive Three.js runtime for reconstruction development",
+  "dependencies": { "three": "0.186.1" }
+}

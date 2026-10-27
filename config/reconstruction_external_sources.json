@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-27",
+  "python_environment": "D:\\cyberdog\\tools\\reconstruction_runtime\\.venv",
+  "web_runtime": "D:\\cyberdog\\tools\\reconstruction_runtime\\web",
+  "versions": {
+    "open3d": "0.20.0",
+    "numpy": "2.4.6",
+    "scipy": "1.17.1",
+    "three": "0.186.1"
+  },
+  "skills": [
+    {
+      "name": "robot-perception",
+      "path": "D:\\cyberdog\\tools\\reference_skills\\robot-perception\\SKILL.md",
+      "repository": "https://github.com/arpitg1304/robotics-agent-skills",
+      "commit": "f9bc5467ff9ee3d23f1a1b0b29a649843bb6ad11",
+      "sha256": "3e6bc70bdeb9ff36a31d6b63991285954ab5bd2ff2289e836d98fc55f0bae574",
+      "activation": "D-drive reference copy; not added to global automatic skill discovery"
+    },
+    {
+      "name": "ros2-web-integration",
+      "path": "D:\\cyberdog\\tools\\reference_skills\\ros2-web-integration\\SKILL.md",
+      "repository": "https://github.com/arpitg1304/robotics-agent-skills",
+      "commit": "f9bc5467ff9ee3d23f1a1b0b29a649843bb6ad11",
+      "sha256": "e99ab0534cfb2b321bccfa752e3f6477f996319e32856d62980e27df186f3c95",
+      "activation": "D-drive reference copy; not added to global automatic skill discovery"
+    },
+    {
+      "name": "threejs-data-visualization",
+      "path": "D:\\cyberdog\\tools\\visualization_skills\\skills\\threejs-data-visualization\\SKILL.md",
+      "repository": "https://github.com/openai/plugins",
+      "commit": "0722921d5542fc593105c27bd52630babd8b8c2a",
+      "sha256": "bc3141b5d655b6c222d180d668010d9246e1dfb77e9f433450cf560876036917",
+      "activation": "D-drive reference copy; not added to global automatic skill discovery"
+    }
+  ]
+}

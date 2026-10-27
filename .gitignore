@@ -1,0 +1,47 @@
+# Machine-local SSH credentials and connection/deployment settings.
+/config/navigation_access
+/config/navigation_access.pub
+/config/readonly_ssh_config
+/config/exploration_deployment.json
+/config/scope.json
+**/known_hosts*
+**/id_rsa*
+**/id_ed25519*
+*.pem
+*.key
+.env
+.env.*
+
+# Robot recordings, room maps and runtime evidence remain local.
+/maps/
+/evidence/
+*.bag
+*.db3
+*.mcap
+*.pcd
+*.ply
+*.npz
+*.npy
+*.cdr
+*.pbstream
+*.log
+
+# External reference checkouts, bundled dependencies and generated output.
+/reference/
+/tools/_ssh_vendor/
+**/__pycache__/
+**/.pytest_cache/
+**/test_tmp/
+**/node_modules/
+**/.venv/
+/build/
+/install/
+/dist/
+*.pyc
+*.pyo
+*.zip
+*.7z
+*.tar
+*.tgz
+.DS_Store
+Thumbs.db

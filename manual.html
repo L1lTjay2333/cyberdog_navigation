@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CyberDog 网页遥控</title>
+<style>body{background:#101820;color:#e8eff6;font:18px system-ui;max-width:760px;margin:24px auto;padding:12px}button{font:inherit;padding:20px;border:0;border-radius:10px;background:#2486cf;color:white;touch-action:none;user-select:none}button:disabled{background:#43515c}#pad{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:24px 0}#stop{background:#b83838}#message{color:#ffd18b}pre{white-space:pre-wrap;font:16px system-ui}a{color:#8acaff}</style>
+<h1>CyberDog 网页手动遥控</h1>
+<p class="note"><strong>W/S 前后，A/D 原地旋转，组合键弧线行走；J/K 横移。松手停车，空格起立/趴下，Esc紧急停车。</strong>前后请求上限0.5米/秒，横移0.3米/秒。</p>
+<p>不依赖地图。按住方向按钮，松开即请求停车。切出网页或失联会请求停车；现场物理急停必须可用。</p>
+<button id="connect">连接遥控（不启动运动）</button>
+<button id="disconnect">断开遥控会话</button>
+<p id="message">等待连接。默认运动锁关闭。</p>
+<div id="pad"><span></span><button data-direction="forward" disabled>↑ 前进</button><span></span>
+<button data-direction="left" disabled>↶ 左旋 A</button><button id="stop">停止</button><button data-direction="right" disabled>右旋 D ↷</button>
+<button data-direction="shift_left" disabled>← 左移 J</button><button data-direction="backward" disabled>↓ 后退 S</button><button data-direction="shift_right" disabled>右移 K →</button></div>
+<p>鼠标与键盘方向一致：A/D 旋转，J/K 横移。</p>
+<pre id="feedback">等待机器狗反馈。</pre>
+<h2>雷达测距诊断（队友参考算法）</h2>
+<pre id="distance">等待实时扫描与TF。</pre>
+<p>原始斜距与机身前向距离不同。下列统计不保证对应纸箱；有效数据不等于测距精度已验证，诊断结果不会自动解锁运动。</p>
+<p>遥控上限：前后0.5米/秒，横移0.3米/秒，旋转0.6弧度/秒。摇杆横推原地旋转，斜推弧线行走；S+A/S+D 向左后/右后倒车。自动导航速度仍由原厂控制器决定。</p>
+<p><a href="/">保留的队友地图/导航页面</a>（不能与遥控同时执行）</p>
+<script src="/manual.js"></script></html>

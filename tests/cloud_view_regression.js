@@ -1,0 +1,20 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+let pixels=[];const handlers={};
+const ctx={fillRect:(x,y,w,h)=>{if(w===2&&h===2)pixels.push([x,y]);},fillText(){},beginPath(){},moveTo(){},lineTo(){},stroke(){},arc(){},fill(){},closePath(){}};
+const nodes={cloud:{width:900,height:600,getContext:()=>ctx,addEventListener:(event,fn)=>handlers[event]=fn,setPointerCapture(){}},cloudstatus:{},clearcloud:{},fitcloud:{},levelcloud:{},topcloud:{},exportcloud:{}};
+const sandbox={document:{getElementById:id=>nodes[id]},window:{},Date,Map,Math,Number,Array,Blob,URL,setTimeout};
+vm.createContext(sandbox);vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'../cloud_view.js'),'utf8'),sandbox);
+let sequence=0;
+function update(points,aligned=true){pixels=[];const now=Date.now()/1000;sandbox.window.updateCloud({started_unix:1,task:{status:8},connection:'connected',local_received_unix:now,emitted_unix:now,cloud:{points_xyz:points,received_unix:now+(++sequence)*.00001,frame:aligned?'map':'camera_depth_optical_frame',aligned}});return pixels.map(p=>p.slice());}
+const initial=update([[0,0,0],[1,1,1]]);
+const expanded=update([[100,100,0]]);
+assert.deepEqual(expanded,initial,'New distant points must not recenter or zoom the fixed view');
+assert.deepEqual(update([[50,50,50]],false),initial,'Unaligned camera frames must not replace the world model');
+handlers.pointerdown({clientX:0,clientY:0,pointerId:1});pixels=[];handlers.pointermove({clientX:0,clientY:100});
+assert.notDeepEqual(pixels,initial,'Vertical dragging must rotate the viewing elevation');
+pixels=[];nodes.levelcloud.onclick();
+assert.deepEqual(pixels,initial,'Level view must restore the default orientation');
+nodes.clearcloud.onclick();update([[0,0,0],[0,0,1]]);pixels=[];nodes.topcloud.onclick();
+assert.equal(pixels.length,2);
+assert.ok(Math.abs(pixels[0][0]-pixels[1][0])<1e-8&&Math.abs(pixels[0][1]-pixels[1][1])<1e-8,'XY top view projects equal XY to the same screen position');
+console.log('Fixed camera, frame continuity, free rotation and view reset checks passed');

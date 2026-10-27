@@ -1,0 +1,20 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>CyberDog 实时地图</title>
+<style>body{background:#101820;color:#e8eff6;font:18px system-ui;margin:32px}canvas{background:#293746;max-width:95%;border:1px solid #566}pre{white-space:pre-wrap;font:15px system-ui}.note{color:#9fb5c9}</style>
+<h1>CyberDog 实时地图</h1><p class="note">黑色为障碍，白色为空闲，灰色为未知；蓝色箭头为狗的位置和朝向，灰色箭头表示位置已过期。只读查看。</p>
+<div id="status">正在连接机器人…</div><p id="info"></p><p id="position">等待地图坐标系中的位置…</p><canvas id="map" width="900" height="600"></canvas><pre id="sensor"></pre>
+<script>
+const c=document.getElementById('map'),ctx=c.getContext('2d');
+async function update(){try{const s=await(await fetch('/state')).json(),age=s.local_received_unix?Date.now()/1000-s.local_received_unix:null;
+document.getElementById('status').textContent=s.connection==='connected'&&age<8?'机器人数据已连接':'等待机器人数据 / 连接中断';
+const m=s.map;document.getElementById('sensor').textContent='任务状态：'+(s.task?JSON.stringify(s.task):'暂无')+'\n深度点云：'+(s.cloud?JSON.stringify(s.cloud):'暂无')+'\n里程计：'+(s.odom?JSON.stringify(s.odom):'暂无');
+if(!m||!m.width||!m.height){document.getElementById('info').textContent='尚未收到地图，等待原厂建图任务。';return;}
+document.getElementById('info').textContent=`${m.width} × ${m.height} 格；每格 ${m.resolution} 米；坐标系 ${m.frame}；地图接收距今 ${Math.max(0,Date.now()/1000-m.received_unix).toFixed(1)} 秒。`;
+if(m.data.length!==m.width*m.height)return;
+const tmp=document.createElement('canvas');tmp.width=m.width;tmp.height=m.height;const tc=tmp.getContext('2d'),im=tc.createImageData(m.width,m.height);
+for(let y=0;y<m.height;y++)for(let x=0;x<m.width;x++){const v=m.data[y*m.width+x],j=((m.height-1-y)*m.width+x)*4,g=v<0?120:Math.round(255*(1-v/100));im.data[j]=im.data[j+1]=im.data[j+2]=g;im.data[j+3]=255;}tc.putImageData(im,0,0);ctx.clearRect(0,0,c.width,c.height);ctx.imageSmoothingEnabled=false;const k=Math.min(c.width/m.width,c.height/m.height);ctx.drawImage(tmp,0,0,m.width*k,m.height*k);
+const p=s.pose,a=p?Math.max(0,s.emitted_unix-p.received_unix)+Math.max(0,age):Infinity;
+if(s.marker&&p){const fresh=s.connection==='connected'&&a<3;document.getElementById('position').textContent=`${fresh?'实时位置':'位置已过期'}：x ${p.x.toFixed(2)} 米，y ${p.y.toFixed(2)} 米，朝向 ${(p.yaw*180/Math.PI).toFixed(0)}°；更新 ${a.toFixed(1)} 秒前`;
+ctx.save();ctx.translate(s.marker.x,s.marker.y);ctx.rotate(s.marker.angle);ctx.beginPath();ctx.moveTo(18,0);ctx.lineTo(-11,-10);ctx.lineTo(-6,0);ctx.lineTo(-11,10);ctx.closePath();ctx.fillStyle=fresh?'#158cff':'#889099';ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.fill();ctx.stroke();ctx.restore();
+}else{document.getElementById('position').textContent=s.pose_error?'位置暂不显示：'+s.pose_error:'等待原厂地图位置；不使用未经转换的里程计代替。';}
+}catch(e){document.getElementById('status').textContent='本地地图服务尚未连接';}}update();setInterval(update,500);
+</script></html>

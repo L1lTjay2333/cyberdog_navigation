@@ -1,0 +1,181 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CyberDog · 电脑任务台</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1017;--panel:#121c28;--muted:#8a9bb0;--cyan:#57d8c7}*{box-sizing:border-box}body{background:var(--bg);color:#edf3fb;font:14px system-ui,"Microsoft YaHei",sans-serif;margin:0}header{height:82px;border-bottom:1px solid #243143;display:flex;align-items:center;justify-content:space-between;padding:0 32px}.brand{font-size:23px;font-weight:700;letter-spacing:-.6px}.brand span{color:var(--cyan)}.eyebrow{color:var(--muted);font-size:10px;letter-spacing:2px;margin-bottom:6px}#status{padding:9px 16px;border:1px solid #304555;border-radius:24px;color:var(--cyan)}main{display:grid;grid-template-columns:300px minmax(0,1fr);gap:24px;padding:24px 32px;max-width:1600px;margin:auto}.card{background:var(--panel);border:1px solid #263347;border-radius:16px;padding:22px;margin-bottom:16px}h1{font-size:20px;margin:0 0 8px}h2{font-size:15px;margin:0 0 16px}.note{color:var(--muted);line-height:1.7}.step{display:flex;gap:10px;margin:20px 0 12px;align-items:center}.number{border:1px solid #34515d;color:var(--cyan);border-radius:50%;width:25px;height:25px;text-align:center;line-height:23px}button{font:inherit;font-weight:600;padding:11px 13px;border:1px solid #344960;border-radius:9px;background:#203146;color:#eef5ff;cursor:pointer;transition:background .15s}button:hover:not(:disabled){background:#2c4962}button:disabled{opacity:.4;cursor:not-allowed}.wide{width:100%;margin-bottom:9px}.primary{background:#55d7c6;color:#062a28;border-color:#55d7c6}.primary:hover:not(:disabled){background:#7aeadc}#cancel{background:#402128;border-color:#743a44;color:#ffb4bc}a{color:var(--cyan);text-decoration:none}.toolbar{display:flex;gap:10px;justify-content:space-between;align-items:center;margin-bottom:18px}.tabs{display:flex;gap:6px}.tabs button{padding:9px 16px}.stage-label{font-size:12px;color:var(--cyan)}canvas{display:block;width:100%;background:#101a26;border-radius:12px;cursor:crosshair}canvas[hidden],#scene[hidden]{display:none}.metrics{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}.metric{border:1px solid #263b4c;border-radius:10px;padding:13px}.metric small{color:var(--muted);display:block;margin-bottom:7px}#message{padding:14px;border-left:3px solid var(--cyan);background:#142733;border-radius:4px;color:#d2e7ed;line-height:1.6;margin-bottom:12px}#navstatus{color:#9db7cc;font-size:12px;line-height:1.6}.legend{display:flex;gap:18px;font-size:12px;color:var(--muted);margin-top:16px}.legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}details{border-top:1px solid #263347;margin-top:20px;padding-top:16px}summary{cursor:pointer;color:var(--muted)}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;color:#9fb6ca}.cloudbuttons{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}.workflow{font-size:12px;line-height:1.8;color:#a4b8cd}#mappingstatus{font-size:12px;color:#e1c185;margin-top:10px;overflow-wrap:anywhere}.clickmode{display:block;font-size:12px;color:#b4c8da;line-height:1.8;margin:10px 0}input{accent-color:var(--cyan)}@media(max-width:950px){main{grid-template-columns:1fr;padding:16px}header{padding:16px;height:auto;gap:12px}.metrics{grid-template-columns:1fr}}
+</style>
+<header><div><div class="eyebrow">ROBOTICS / COMPUTER CONTROL</div><div class="brand">CyberDog<span> · </span>电脑任务台</div></div><div id="status">连接机器人…</div></header>
+<main><aside><div class="card"><h1>场景与导航</h1><p class="note">电脑独立发起任务，无需手机操作。两端不可同时控制。</p>
+<p id="connection-detail" class="workflow" role="status" aria-live="polite">正在检查机器人实时数据连接…</p>
+<div style="display:flex;gap:8px"><button id="sshcheck">检查 SSH 连接</button><button id="sshreconnect">重新连接机器狗</button></div><button id="refreshconnection">刷新重连 · 定位异常 / 导航卡住</button><button class="wide" id="resetstaletask" disabled>手动重置卡住的导航状态（不行走）</button><p id="sshfeedback" class="workflow" role="status" aria-live="polite">电脑后台通过 SSH 连接机器狗，网页不保存密码。</p>
+<div class="step"><span class="number">1</span><b>扫描新场地</b></div><button class="wide" id="mappingstart" disabled>＋ 新场地扫描并连接遥控</button><button class="wide" id="mappingcontrol" disabled>连接建图遥控 · WASD / J K</button><button class="wide" id="mappingsave" disabled>完成扫描 · 保存地图</button><div class="workflow">先备份旧图，再启动原厂建图并连接本页遥控。按键移动采集，二维地图实时更新；松开按键停车，保存前自动结束遥控。新图不依赖旧场地定位。</div><div id="mappingstatus"></div>
+<div class="step"><span class="number">2</span><b>准备电脑导航</b></div><button class="wide" id="relocalize" disabled>启动电脑导航 / 检查定位</button><button class="wide" id="relocalizeforce" disabled>已搬动 / 位置不准 · 重新定位</button><div id="localizationfeedback" class="workflow" role="status">充电搬动、重连或换图后重新定位；新场地先扫描并保存，不能沿用旧场地图。</div>
+<button class="wide" id="savelocalize" disabled>完成扫描 → 保存并定位</button><p id="workflowfeedback" class="workflow" role="status" aria-live="polite">等待实时建图与导航状态。</p>
+<div class="step"><span class="number">3</span><b>点击地图前往</b></div><button class="wide primary" id="go" disabled>执行选中路线</button><div id="go-feedback" class="workflow" role="status" aria-live="polite">请先选择目的地。</div><div id="nav-battery" class="workflow" role="status"></div><label class="clickmode"><input id="clickmove" type="checkbox"> 点击即导航（需运动验收与授权）</label><button class="wide" id="cancel" disabled>■ 停止 / 取消导航</button>
+<details open><summary>未知区域目标 · 实时扫描导航</summary>
+<label class="clickmode"><input id="unknown-mode" type="checkbox"> 未知目标模式（地图灰色区域也可选点）</label>
+<div style="display:flex;gap:8px"><label>X / 米 <input id="unknown-x" type="number" step="0.1" value="3" style="width:100%;padding:8px"></label><label>Y / 米 <input id="unknown-y" type="number" step="0.1" value="0" style="width:100%;padding:8px"></label></div>
+<label class="clickmode"><input id="unknown-relative" type="checkbox" checked> 相对设置时位置的偏移（沿地图 X/Y 轴）</label>
+<button class="wide" id="unknown-set" disabled>设置未知目标并规划</button>
+<div id="unknown-distance" class="workflow">起点 → 终点直线距离：未设置</div><div id="unknown-detail" class="workflow"></div>
+<p id="unknown-status" class="workflow" role="status" aria-live="polite">设置目标后随扫描重新规划；未知格不作为可行走空间。</p>
+<button class="wide" id="unknown-probe" disabled>检查独立执行器（不运动）</button>
+<label class="clickmode"><input id="unknown-approve" type="checkbox"> 本次现场已就绪、急停人员在旁，允许低速自动行走</label>
+<button class="wide" id="unknown-scan" disabled>原地补扫一圈 · 低速旋转</button>
+<button class="wide" id="unknown-execute" disabled>开始实时扫描导航 · 0.15 m/s</button><button class="wide" id="unknown-stop" disabled>取消独立探索 / Esc</button><button class="wide" id="unknown-clear" disabled>清除未知目标</button>
+<p class="workflow">蓝色虚线仅表示起终点直线，黄色为本段绕障路线。独立模块不调用原厂到点导航；首版目标和累计路程均限5米、120秒，实机验收状态以反馈为准。</p></details>
+</div><div class="card" id="manual-panel"><h2>本页遥控</h2><p class="note">W/S 前后，A/D 原地旋转，组合键弧线行走；J/K 横移。按住移动，松开停车；空格起立/趴下，Esc 停车。</p><button class="wide" id="control-connect">连接本页遥控</button><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px"><button data-direction="forward" disabled>前进 W</button><button data-direction="backward" disabled>后退 S</button><button data-direction="left" disabled>左旋 A</button><button data-direction="right" disabled>右旋 D</button><button data-direction="shift_left" disabled>左移 J</button><button data-direction="shift_right" disabled>右移 K</button></div><button class="wide" id="control-stop">停止</button><button class="wide" id="control-disconnect">结束遥控，切换导航</button><p id="control-message" class="note">等待连接</p><pre id="control-feedback"></pre><details><summary>测距诊断</summary><pre id="control-distance"></pre></details><p class="note">先结束其他标签页的遥控。手动遥控与到点导航不能同时运行。</p><a href="/manual">独立遥控台 →</a></div></aside>
+<section><div class="card"><div class="toolbar"><div class="tabs"><button id="two">二维地图</button><button id="three">深度点云</button></div><span class="stage-label" id="stage">等待任务</span></div><div id="message">等待地图和定位数据。</div><div id="navstatus"></div><div class="metrics"><div class="metric"><small>场景覆盖 / 地图信息</small><div id="info">等待扫描</div></div><div class="metric"><small>机器人位置</small><div id="position">等待定位</div></div></div>
+<canvas id="map" width="900" height="600"></canvas><div id="scene" hidden><p id="cloudstatus">等待真实深度点云。</p><div class="cloudbuttons"><button id="levelcloud">水平视角</button><button id="topcloud">XY俯视</button><button id="fitcloud">适应画面</button><button id="clearcloud">清空点云</button><button id="exportcloud">导出PLY</button></div><canvas id="cloud" width="900" height="600"></canvas><p class="note">单帧相机点云不等于地图。只有定位及坐标变换有效时才融合；箭头代表机身前向。</p></div>
+<div class="legend"><span><i style="background:#158cff"></i>机器狗</span><span><i style="background:#ffab38"></i>目标</span><span><i style="background:#00df76"></i>路线</span><span>白色可通行 · 黑色障碍 · 灰色未知</span></div><details><summary>查看传感器与任务日志</summary><pre id="sensor"></pre></details></div></section></main>
+<script src="/cloud_view.js"></script><script src="/unknown_goal.js"></script><script>
+const c=document.getElementById('map'),ctx=c.getContext('2d');let latest=null,busy=false,pendingGoal=null,failedGoal=null,planningError='';const el=id=>document.getElementById(id);
+function navigationControls(s,live){
+ const n=s.navigation||{},d=s.decision||{},status=s.task?.status;
+ let reason='';
+ if(!live||s.offline)reason='实时连接未就绪，请检查机器狗连接。';
+ else if(window.unknownGoalEnabled())reason='当前为未知目标探索，请使用探索执行按钮。';
+ else if(busy)reason='请求处理中，请等待路线计算完成。';
+ else if(s.mapping?.active)reason='建图请求处理中，请等待保存完成。';
+ else if(n.active)reason=d.message||'定位或导航执行中，请等待当前任务完成。';
+ else if(planningError)reason='目标已选，但路线未就绪：'+planningError+'；请重新选点计算。';
+ else if(!s.selection)reason='请在二维地图白色区域选择目的地。';
+ else if(!n.enabled)reason='自动导航权限未开启。';
+ else if(status!==8||!d.can_start)reason=d.message||'定位或路线未就绪，请检查定位。';
+ el('go').disabled=!!reason;
+ el('go').title=reason||'执行已选目的地的避障导航';
+ el('go-feedback').textContent=reason?`暂不可执行：${reason}`:`目标已就绪${Number.isFinite(d.distance_m)?` · 距离 ${d.distance_m.toFixed(2)} 米`:''}，点击上方按钮开始导航。`;
+ el('go-feedback').style.color=reason?'#e1c185':'#57d8c7';
+ const b=s.battery,p=b?.percent,batteryAge=Date.now()/1000-(b?.received_unix||0),batteryFresh=live&&Number.isFinite(p)&&batteryAge>=-.5&&batteryAge<3;
+ el('nav-battery').textContent=batteryFresh?`电量 ${p}% · ${b.wired_charging||b.wireless_charging?'正在充电，暂不发送运动':'未充电'} · 更新 ${Math.max(0,batteryAge).toFixed(1)} 秒前${p<20?' · 低电量提示，不限制导航；原厂欠压保护仍有效':''}`:'电量 / 充电状态未知，等待新反馈';
+ el('nav-battery').style.color=p<20?'#e1c185':'#a4b8cd';
+}
+function workflowFeedback(s){
+ const live=s.connection==='connected'&&Date.now()/1000-(s.local_received_unix||0)<3&&!s.offline;
+ const status=s.task?.status,m=s.map,mp=s.mapping||{},n=s.navigation||{};
+ el('mappingcontrol').disabled=!live||busy||!!mp.active||!!n.active||status!==5||!mp.events?.some(e=>e.event==='SCANNING');
+ el('savelocalize').disabled=!live||busy||!!mp.active||!!n.active||status!==5;
+ if(!live){el('workflowfeedback').textContent='实时连接未就绪；不能用旧地图数据执行导航。';return;}
+ if(mp.active){el('workflowfeedback').textContent='正在处理建图/保存请求，请等待原厂结果。';return;}
+ if(status===5){
+  const age=m?.received_unix?Math.max(0,Date.now()/1000-m.received_unix):Infinity;
+  const count=m?.data?.filter(v=>v>=0).length||0;
+  el('workflowfeedback').textContent=`正在扫描：${mp.map_name||'原厂建图任务'}。${Number.isFinite(age)?`地图更新 ${age.toFixed(1)} 秒前，已知 ${count} 格。`: '等待二维地图数据。'}连接遥控并移动采集，完成后点击「保存并定位」。`;
+  return;
+ }
+ if(n.active){el('workflowfeedback').textContent=s.decision?.message||'原厂定位/导航执行中，请查看任务反馈。';return;}
+ if(status===8){el('workflowfeedback').textContent=n.enabled?'定位完成：点击白色可通行区域预览路线，再执行；导航由原厂局部规划器根据实时障碍调整。':'定位完成：可点击白色区域预览避障路线；自动行走尚待取消停车与到点实机验收，未开放。';return;}
+ const saved=mp.events?.some(e=>e.event==='SAVED');
+ el('workflowfeedback').textContent=saved?'地图已保存：点击「启动电脑导航 / 重新定位」，定位成功后才能选点。':'新场地先扫描、保存、定位；旧场地可直接定位。导航只接受已知可通行区域，不接受墙体或未知位置。';
+}
+el('savelocalize').onclick=async()=>{
+ if(busy)return;busy=true;el('savelocalize').disabled=true;el('message').textContent='结束遥控并保存当前新地图…';
+ try{
+  await post('/mapping/save',{});
+  const until=Date.now()+110000;let saved=false;
+  while(Date.now()<until){
+   const s=await(await fetch('/state')).json();
+   if(s.connection!=='connected'||Date.now()/1000-(s.local_received_unix||0)>=3)throw Error('保存期间实时数据中断，请核查原厂结果，不自动重试');
+   if(!s.mapping?.active){
+    const failure=s.mapping?.events?.find(e=>e.event==='ERROR');if(failure)throw Error(failure.message);
+    if(s.mapping?.events?.some(e=>e.event==='SAVED')&&s.task?.status===101){saved=true;break;}
+   }
+   await new Promise(resolve=>setTimeout(resolve,500));
+  }
+  if(!saved)throw Error('地图保存尚未确认，不启动定位；请查看任务日志');
+  await post('/relocalize',{});el('message').textContent='地图已保存，正在原厂定位；定位成功后点击二维地图预览避障路线。';
+ }catch(e){el('message').textContent=e.message;}finally{busy=false;}
+};
+for(const [id,path] of [['sshcheck','/connection/check'],['sshreconnect','/connection/reconnect']])el(id).onclick=async()=>{el('sshcheck').disabled=el('sshreconnect').disabled=true;el('sshfeedback').textContent='检查中，请等待 SSH 返回…';try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const j=await r.json();el('sshfeedback').textContent=j.message;}catch(e){el('sshfeedback').textContent='电脑网页服务不可用，请运行 Start-WebConsole.ps1。';}finally{el('sshcheck').disabled=el('sshreconnect').disabled=false;}};
+el('refreshconnection').onclick=async()=>{if(busy){el('sshfeedback').textContent='任务请求正在返回，请稍候再刷新重连。';return;}busy=true;el('refreshconnection').disabled=true;el('sshfeedback').textContent='正在结束旧会话并刷新连接，请稍候…';try{if(window.endManualControl)await window.endManualControl();const j=await post('/connection/refresh',{});planningError='';pendingGoal=null;failedGoal=null;el('sshfeedback').textContent=j.message;el('message').textContent=j.message;}catch(e){el('sshfeedback').textContent=e.message;}finally{busy=false;el('refreshconnection').disabled=false;update();}};
+el('resetstaletask').onclick=async()=>{if(busy||!latest)return;if(!confirm('请先确认机器狗实际已停稳，且手机和网页都没有在控制。仅清理卡住的原厂导航任务，不会自动定位或行走。确定继续吗？'))return;busy=true;el('resetstaletask').disabled=true;el('sshfeedback').textContent='正在核对原厂任务、动作状态与静止里程计，请勿重复点击…';try{const j=await post('/task/reset_stale',{stopped:true});pendingGoal=null;failedGoal=null;planningError='';el('sshfeedback').textContent=j.message;el('message').textContent=j.message;}catch(e){el('sshfeedback').textContent='重置未完成：'+e.message;el('message').textContent='重置未完成：'+e.message;}finally{busy=false;update();}};
+function connectionFeedback(s){const age=s.local_received_unix?Math.max(0,Date.now()/1000-s.local_received_unix):Infinity;const live=s.connection==='connected'&&age<3;el('connection-detail').textContent=s.offline?'离线回放：不是机器人实时反馈。':live?`实时数据已连接 · 更新于 ${age.toFixed(1)} 秒前。操控请点击「连接本页遥控」，然后按 WASD；遥控连接与导航权限分别显示。`:`${s.connection==='connecting'?'正在连接机器人':'机器人实时数据中断'}${Number.isFinite(age)?` · 最后更新 ${age.toFixed(1)} 秒前`:''}。后台自动重连；请确认狗已开机、电脑与狗网络互通，当前狗地址 192.168.1.123。恢复后会自动显示已连接，无需反复点击运动键。`;}
+async function post(path,body){if(['/mapping/start','/mapping/save','/relocalize','/goal','/navigate'].includes(path)&&window.endManualControl)await window.endManualControl();const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),j=await r.json();if(!j.ok)throw Error(j.message);return j;}
+function xy(p,m){const o=m.origin,a=2*Math.atan2(o.qz,o.qw),dx=p.x-o.x,dy=p.y-o.y,k=Math.min(c.width/m.width,c.height/m.height);return [((Math.cos(a)*dx+Math.sin(a)*dy)/m.resolution)*k,(m.height-(-Math.sin(a)*dx+Math.cos(a)*dy)/m.resolution)*k];}
+function line(route,m,color,dash){if(!route||route.frame!==m.frame||!route.points.length)return;ctx.save();ctx.strokeStyle=color;ctx.lineWidth=3;ctx.setLineDash(dash);ctx.beginPath();route.points.forEach((p,i)=>{const [x,y]=xy(p,m);if(i&&!p.break)ctx.lineTo(x,y);else ctx.moveTo(x,y);});ctx.stroke();ctx.restore();}
+const trailInfo=document.createElement('p');trailInfo.id='trajectory-status';trailInfo.className='note';c.after(trailInfo);
+const sensorCheck=document.createElement('p');sensorCheck.id='localization-sensor-check';sensorCheck.className='workflow';trailInfo.after(sensorCheck);
+const trailLegend=document.createElement('span');trailLegend.textContent='紫色：实际运动轨迹';trailLegend.style.color='#cf8bff';document.querySelector('.legend').append(trailLegend);
+const scanLegend=document.createElement('span');scanLegend.textContent='橙色点：实时扫描';scanLegend.style.color='#ffb45f';document.querySelector('.legend').append(scanLegend);
+let mapImageKey=null,mapImage=null,updateTimer=null,updateInFlight=false;
+function drawMap(m){
+ const key=JSON.stringify([m.frame,m.width,m.height,m.resolution,m.origin,m.received_unix,m.stamp]);
+ if(key!==mapImageKey){const tmp=document.createElement('canvas');tmp.width=m.width;tmp.height=m.height;const tc=tmp.getContext('2d'),im=tc.createImageData(m.width,m.height);for(let y=0;y<m.height;y++)for(let x=0;x<m.width;x++){const v=m.data[y*m.width+x],j=((m.height-1-y)*m.width+x)*4,g=v<0?120:Math.round(255*(1-v/100));im.data[j]=im.data[j+1]=im.data[j+2]=g;im.data[j+3]=255;}tc.putImageData(im,0,0);mapImage=tmp;mapImageKey=key;}
+ ctx.clearRect(0,0,c.width,c.height);ctx.imageSmoothingEnabled=false;const k=Math.min(c.width/m.width,c.height/m.height);ctx.drawImage(mapImage,0,0,m.width*k,m.height*k);
+}
+function drawScan(s,m,age){
+ const scan=s.laser_overlay;if(!scan||scan.frame!==m.frame||s.emitted_unix-scan.received_unix+Math.max(0,age)>1.5)return;
+ ctx.save();ctx.fillStyle='#ffb45f';for(const p of scan.points){const [x,y]=xy(p,m);ctx.fillRect(x-1,y-1,2,2);}ctx.restore();
+}
+function drawTarget(target,m){const [x,y]=xy(target,m);ctx.save();ctx.strokeStyle='#ffab38';ctx.lineWidth=3;ctx.beginPath();ctx.arc(x,y,9,0,Math.PI*2);ctx.moveTo(x-14,y);ctx.lineTo(x+14,y);ctx.moveTo(x,y-14);ctx.lineTo(x,y+14);ctx.stroke();ctx.restore();}
+c.addEventListener('click',async e=>{
+ if(!latest?.map)return;
+ if(busy){el('message').textContent='上一请求仍在处理，目标点击已收到；请等待结果后再选点。';return;}
+ const m=latest.map,rect=c.getBoundingClientRect(),px=(e.clientX-rect.left)*c.width/rect.width,py=(e.clientY-rect.top)*c.height/rect.height,k=Math.min(c.width/m.width,c.height/m.height),gx=px/k,gy=m.height-py/k;
+ if(gx<0||gx>=m.width||gy<0||gy>=m.height){el('message').textContent='点击位于地图画面外，请在地图区域内选点。';return;}
+ const a=2*Math.atan2(m.origin.qz,m.origin.qw),lx=gx*m.resolution,ly=gy*m.resolution,target={x:m.origin.x+Math.cos(a)*lx-Math.sin(a)*ly,y:m.origin.y+Math.sin(a)*lx+Math.cos(a)*ly};
+ if(window.unknownGoalEnabled()){await window.selectUnknownGoal(target);return;}
+ if(latest.navigation?.active){el('message').textContent='定位/导航任务正在执行，请等待完成或先取消。';return;}
+ if(latest.task?.status!==8||latest.pose?.frame!=='map'){el('message').textContent='当前定位未就绪；先保存地图并完成电脑定位。';return;}
+ if(m.data[Math.floor(gy)*m.width+Math.floor(gx)]!==0){el('message').textContent='目标处是障碍或未知区域，请选择白色可通行区域。';return;}
+ const distance=Math.hypot(target.x-latest.pose.x,target.y-latest.pose.y),limit=latest.navigation?.max_goal_distance_m;
+ if(Number.isFinite(limit)&&distance>limit){el('message').textContent=`目标距离 ${distance.toFixed(2)} 米，超出当前单次测试上限 ${limit.toFixed(1)} 米；请选择更近的目标。`;return;}
+ busy=true;planningError='';failedGoal=null;pendingGoal={...target,frame:m.frame};drawTarget(pendingGoal,m);
+ el('message').textContent=`已收到目标 (${target.x.toFixed(2)}, ${target.y.toFixed(2)}) 米，正在计算路线…`;
+ try{
+  const j=await post('/goal',target);latest.selection=j;
+  el('message').textContent=`路线 ${j.preview.length_m.toFixed(1)} 米已就绪；${el('clickmove').checked?'正在提交导航…':'当前为预览，请点击「执行选中路线」才会行走。'}`;
+  if(el('clickmove').checked&&latest.navigation?.enabled&&!latest.navigation.active){await post('/navigate',target);el('message').textContent='目标已提交，沿用当前定位准备行走；请查看下方执行反馈。';}
+ }catch(err){planningError=err.message;failedGoal=pendingGoal;el('message').textContent='目标已记录，规划失败：'+err.message;}finally{pendingGoal=null;busy=false;}
+});
+el('clickmove').onchange=()=>{if(el('clickmove').checked&&!confirm('开启后点击地图将请求机器狗实际行走。请确认现场急停就位，手机不同时控制。运动锁和原厂安全检查仍生效。'))el('clickmove').checked=false;};
+el('mappingcontrol').onclick=async()=>{try{await window.connectMappingControl();el('message').textContent='已请求建图遥控，连接就绪后可按 WASD / J K 移动采集；二维地图持续更新。';}catch(e){el('message').textContent=e.message;}};
+for(const [id,path] of [['mappingstart','/mapping/start'],['mappingsave','/mapping/save']])el(id).onclick=async()=>{
+ if(busy)return;
+ if(id==='mappingstart'&&!confirm('开始扫描新场地？先备份旧地图，建图成功后连接键盘遥控，不自动行走。'))return;
+ busy=true;
+ try{
+  el('message').textContent=(await post(path,{})).message;
+  if(id==='mappingstart'){
+   const until=Date.now()+110000;let ready=false;
+   while(Date.now()<until){
+    const s=await(await fetch('/state')).json();
+    if(s.connection!=='connected'||Date.now()/1000-(s.local_received_unix||0)>=3)throw Error('建图反馈中断；恢复后点击「连接建图遥控」，不自动重试建图');
+    const mp=s.mapping||{};
+    if(!mp.active){
+     const failure=mp.events?.find(e=>e.event==='ERROR');if(failure)throw Error(failure.message);
+     if(s.task?.status===5&&mp.events?.some(e=>e.event==='SCANNING')){ready=true;break;}
+    }
+    await new Promise(resolve=>setTimeout(resolve,500));
+   }
+   if(!ready)throw Error('尚未确认建图成功，请查看任务日志；未自动连接遥控');
+   await window.connectMappingControl();
+   el('message').textContent='新场地扫描已开启，已请求连接本页遥控；连接就绪后按 WASD / J K 边走边建图，完成后点「保存并定位」。';
+  }
+ }catch(e){el('message').textContent=e.message;}finally{busy=false;}
+};
+for(const [id,force] of [['relocalize',false],['relocalizeforce',true]])el(id).onclick=async()=>{if(busy)return;busy=true;el('relocalize').disabled=el('relocalizeforce').disabled=true;el('message').textContent=force?'正在请求强制重新定位…':'正在检查当前定位，有效时直接复用…';try{const j=await post('/relocalize',{force});el('message').textContent=j.message;}catch(e){el('message').textContent=e.message;}finally{busy=false;}};
+el('go').onclick=async()=>{if(window.unknownGoalEnabled()||!latest?.selection||busy||planningError)return;busy=true;el('go').disabled=true;try{await post('/navigate',latest.selection.goal);el('message').textContent='正在核对定位、地图和传感器，等待导航启动。';}catch(e){el('message').textContent='执行未启动：'+e.message;}finally{busy=false;}};
+el('cancel').onclick=async()=>{try{const j=await post('/cancel',{});el('message').textContent=j.message;}catch(e){el('message').textContent=e.message;}};
+el('two').onclick=()=>{c.hidden=false;el('scene').hidden=true;};el('three').onclick=()=>{c.hidden=true;el('scene').hidden=false;};
+async function fetchState(){
+ const revision=latest?.map?.data?latest.display_map_revision:null;
+ const s=await(await fetch('/state'+(revision?'?map_revision='+encodeURIComponent(revision):''))).json();
+ if(s.map&&!s.map.data&&s.display_map_revision===revision)s.map={...s.map,data:latest.map.data};
+ return s;
+}
+async function update(){if(updateInFlight)return;clearTimeout(updateTimer);updateInFlight=true;try{const s=await fetchState();latest=s;connectionFeedback(s);workflowFeedback(s);window.updateCloud(s);const age=s.local_received_unix?Date.now()/1000-s.local_received_unix:Infinity,live=s.connection==='connected'&&age<3;el('status').textContent=s.offline?'离线记录回放 · 不连接机器狗':live?'机器人已连接':'机器人连接中断，执行已禁用';if(s.offline)el('message').textContent='当前显示上次记录，不是实时扫描或仿真运动。所有实机操作已禁用。';const n=s.navigation||{},status=s.task?.status;
+const mappingBusy=!!s.mapping?.active;el('resetstaletask').disabled=!s.reset_stale_available||!live||busy||status!==1||n.active||mappingBusy||!!s.exploration?.executor?.active;el('resetstaletask').title=s.reset_stale_available?'仅清理已结束但原厂状态未退出的导航任务':'电脑网页服务尚未重载，新按钮暂不可用';el('mappingstart').disabled=!live||busy||mappingBusy||n.active||![101,6,8].includes(status);el('mappingsave').disabled=!live||busy||mappingBusy||n.active||status!==5;el('clickmove').disabled=!live||!n.enabled||status!==8||mappingBusy;if(el('clickmove').disabled)el('clickmove').checked=false;el('stage').textContent=mappingBusy?'建图请求处理中':({5:'扫描场地中',6:'定位失败 · 可扫描新场地',7:'重新定位中',8:'已定位 · 可选择目标',1:'导航执行中',101:'待机'}[status]||'等待原厂状态');const last=s.mapping?.events?.at(-1);el('mappingstatus').textContent=mappingBusy?'正在等待原厂反馈，请勿重复操作':last?(last.message||last.event)+' · '+(s.mapping.map_name||''):'';
+window.updateExploration(s);if(window.unknownGoalEnabled()){el('go').disabled=true;el('clickmove').disabled=true;el('clickmove').checked=false;}
+if(!busy&&!planningError&&n.session_started_unix&&s.decision?.message)el('message').textContent=s.decision.message;
+el('relocalize').disabled=el('relocalizeforce').disabled=!live||n.active||mappingBusy||busy||![8,101,6].includes(status);const d=s.decision;navigationControls(s,live);el('cancel').disabled=!n.active;el('navstatus').textContent=!n.enabled?'运动验收尚未开放：可扫描、定位、预览路线，但不会行走。':d?d.message+(Number.isFinite(d.distance_m)?` · 距目标 ${d.distance_m.toFixed(2)} 米`:''):'等待导航决策就绪';if(el('message').textContent==='等待地图和定位数据。'&&live)el('message').textContent=d?.message||'机器人已连接，等待定位与路线反馈。';
+if(window.unknownGoalEnabled())el('go').disabled=true;
+const validation=s.localization_validation;if(validation?.required&&status!==5){el('localizationfeedback').textContent=validation.reason+(validation.rejected_map?'。旧图保留，请选择「新场地扫描」。':'。点击「启动电脑导航 / 检查定位」重新匹配；换场地请选择「新场地扫描」。');el('clickmove').disabled=true;el('clickmove').checked=false;el('stage').textContent=n.preparing_localization?'重新定位中':'定位待确认';}else el('localizationfeedback').textContent='本次场景匹配完成；实物位置及狗头方向应与蓝色箭头一致。充电搬动或换场地后需重新匹配。';
+el('sensor').textContent='原厂任务状态：'+JSON.stringify(s.task)+'\n扫描输入：'+JSON.stringify(s.scan)+'\n建图请求：'+JSON.stringify(s.mapping)+'\n导航日志：'+JSON.stringify(n.events?.slice(-4));const m=s.map;if(!m?.width||!m.height){el('info').textContent='等待原厂地图…';el('position').textContent=n.active?'正在切换定位任务，等待新坐标系的位置':'等待地图与定位';ctx.clearRect(0,0,c.width,c.height);return;}const known=m.data.filter(v=>v>=0).length,coverage=(100*known/m.data.length).toFixed(1),mapAge=Math.max(0,s.emitted_unix-m.received_unix);el('info').textContent=`${m.width} × ${m.height} 格 · ${(m.resolution*100).toFixed(0)} cm · 已知 ${coverage}% · ${m.frame} · ${status===5?`更新于${mapAge.toFixed(1)}秒前`:'已保存静态地图（无需连续更新）'}`;
+if(m.data.length!==m.width*m.height)return;drawMap(m);
+line(s.trajectory,m,'#cf8bff',[]);trailInfo.textContent=`${status===5?'正在扫描新场地 · ':''}实际运动轨迹 ${(s.trajectory?.distance_m||0).toFixed(2)} 米 · 紫色为已走轨迹，绿色为导航路线`;
+drawScan(s,m,age);const check=s.sensor_consistency;sensorCheck.textContent=check?check.message+(Number.isFinite(check.laser_m)&&Number.isFinite(check.depth_m)?` · 雷达 ${check.laser_m.toFixed(2)} 米 / 深度相机 ${check.depth_m.toFixed(2)} 米（安装参考点不同）`:''):'';sensorCheck.style.color=check?.status==='conflict'?'#ffb45f':'';if(check?.status==='conflict'){el('stage').textContent='测距冲突 · 定位精度未确认';}
+line(s.selection?.preview,m,'#7bd590',[5,5]);line(s.path,m,'#00df76',[]);if(s.selection?.goal.frame===m.frame)drawTarget(s.selection.goal,m);if(pendingGoal?.frame===m.frame)drawTarget(pendingGoal,m);
+if(failedGoal?.frame===m.frame)drawTarget(failedGoal,m);
+window.drawExploration(ctx,m,xy);
+const p=s.pose,a=p?Math.max(0,s.emitted_unix-p.received_unix)+Math.max(0,age):Infinity;if(s.marker&&p){const pending=!!validation?.required&&status!==5,fresh=live&&a<3&&!pending;el('position').textContent=`${pending?'旧定位待确认':fresh?'实时位置':'位置已过期'}：${p.x.toFixed(2)}, ${p.y.toFixed(2)} 米 · 朝向 ${(p.yaw*180/Math.PI).toFixed(0)}°`;ctx.save();ctx.translate(s.marker.x,s.marker.y);ctx.rotate(s.marker.angle);ctx.beginPath();ctx.moveTo(18,0);ctx.lineTo(-11,-10);ctx.lineTo(-6,0);ctx.lineTo(-11,10);ctx.closePath();ctx.fillStyle=fresh?'#158cff':'#889099';ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.fill();ctx.stroke();ctx.restore();}else el('position').textContent=s.pose_error||'等待地图位置';
+}catch(e){el('status').textContent='本地地图服务尚未连接';el('connection-detail').textContent='电脑本地网页服务未响应；请重新启动网页服务。这与机器狗网络断开不同。';for(const id of ['go','relocalize','relocalizeforce','mappingstart','mappingsave','savelocalize','clickmove'])el(id).disabled=true;el('go-feedback').textContent='暂不可执行：电脑网页服务未响应。';el('clickmove').checked=false;}finally{updateInFlight=false;updateTimer=setTimeout(update,250);}}update();
+</script><script src="/manual.js"></script></html>

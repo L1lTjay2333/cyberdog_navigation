@@ -1,0 +1,86 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Map reference
+      Enabled: true
+      Plane: XY
+      Cell Size: 1
+      Plane Cell Count: 20
+      Reference Frame: map
+    - Class: rviz_default_plugins/Map
+      Name: Stock navigation map
+      Enabled: true
+      Alpha: 0.5
+      Color Scheme: map
+      Topic:
+        Value: /mi_desktop_48_b0_2d_7b_0b_4a/map
+        Depth: 1
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Measured depth cloud
+      Enabled: true
+      Alpha: 1
+      Position Transformer: XYZ
+      Color Transformer: AxisColor
+      Axis: Z
+      Autocompute Value Bounds:
+        Value: true
+      Style: Points
+      Size (Pixels): 2
+      Size (m): 0.01
+      Decay Time: 10
+      Use Fixed Frame: true
+      Topic:
+        Value: /mi_desktop_48_b0_2d_7b_0b_4a/camera/depth/color/points
+        Depth: 2
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        History Policy: Keep Last
+    - Class: rviz_default_plugins/Path
+      Name: Stock navigation path
+      Enabled: true
+      Color: 0; 220; 100
+      Line Style: Lines
+      Line Width: 0.03
+      Topic:
+        Value: /mi_desktop_48_b0_2d_7b_0b_4a/plan
+        Depth: 1
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        History Policy: Keep Last
+    - Class: rviz_default_plugins/TF
+      Name: Coordinate transforms
+      Enabled: true
+      Show Names: false
+      Show Axes: true
+      Show Arrows: false
+  Enabled: true
+  Global Options:
+    Fixed Frame: map
+    Frame Rate: 15
+    Background Color: 16; 28; 41
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Room 3D
+      Target Frame: map
+      Distance: 8
+      Pitch: 0.6
+      Yaw: 0.5
+Window Geometry:
+  Width: 1200
+  Height: 850

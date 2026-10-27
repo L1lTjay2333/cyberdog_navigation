@@ -18,7 +18,7 @@ class ServiceTests(unittest.TestCase):
         handler.path=path;handler.rfile=io.BytesIO(raw);out=[]
         handler.send=lambda data,kind='json',status=200:out.append((status,json.loads(data)))
         calls=[]
-        with patch.object(server,'LAB',SimpleNamespace(start=lambda seconds:calls.append(seconds),stop=lambda:calls.append('stop'))):
+        with patch.object(server,'LAB',SimpleNamespace(start=lambda seconds,mode='static':calls.append(seconds if mode=='static' else (seconds,mode)),stop=lambda:calls.append('stop'))):
             handler.do_POST()
         return out,calls
 
@@ -32,6 +32,13 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(calls,[12]);self.assertTrue(out[0][1]['ok'])
         out,calls=self.request('http://127.0.0.1:8766',{},'/stop')
         self.assertEqual(calls,['stop'])
+
+    def test_moving_capture_is_explicit_and_keeps_no_motion_interface(self):
+        out,calls=self.request('http://127.0.0.1:8766',{'seconds':60,'mode':'moving'})
+        self.assertEqual(calls,[(60,'moving')]);self.assertTrue(out[0][1]['ok'])
+        lab=server.Laboratory()
+        with self.assertRaises(ValueError):lab.start(60,mode='autonomous')
+        self.assertFalse(lab.active)
 
     def test_array_and_navigation_endpoint_rejected(self):
         for data,path in [([], '/start'),({},'/navigate')]:

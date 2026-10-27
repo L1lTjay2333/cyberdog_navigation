@@ -90,6 +90,13 @@ class StaticModel:
         self.source_frame = None
         self.stamp = 0.
         self.accepted_frames = 0
+        self.last_pose = None
+
+    def check_motion(self, t, q, stamp):
+        at, aq = self.anchor
+        angle = 2 * math.acos(min(1., abs(float(np.dot(q, aq)))))
+        if np.linalg.norm(t-at) > .03 or angle > math.radians(5):
+            raise ValueError('Camera moved beyond static trial limits; fusion stopped')
 
     def add(self, frame, stride=4):
         t, q = checked_pose(frame)
@@ -98,10 +105,7 @@ class StaticModel:
                 raise ValueError('Coordinate frame changed; start a new model')
             if frame['stamp'] <= self.stamp:
                 return False
-            at, aq = self.anchor
-            angle = 2 * math.acos(min(1., abs(float(np.dot(q, aq)))))
-            if np.linalg.norm(t-at) > .03 or angle > math.radians(5):
-                raise ValueError('Camera moved beyond static trial limits; fusion stopped')
+            self.check_motion(t, q, frame['stamp'])
         points = decode_depth_frame(frame, stride)
         if not len(points):
             raise ValueError('No valid depth points in supported range')
@@ -123,6 +127,7 @@ class StaticModel:
             self.anchor, self.frame = (t, q), frame['frame']
             self.source_frame = frame['source_frame']
         self.stamp, self.accepted_frames = frame['stamp'], self.accepted_frames + 1
+        self.last_pose = (t, q)
         return True
 
     def points(self, minimum_frames=2):
@@ -132,6 +137,41 @@ class StaticModel:
         return {'accepted_frames':self.accepted_frames, 'voxels':len(self.cells),
                 'frame':self.frame, 'last_stamp':self.stamp, 'voxel_m':self.voxel,
                 'max_voxels':self.max_voxels, 'scale_calibrated':False}
+
+
+class MovingModel(StaticModel):
+    """Short-distance odometry-guided fusion, not SLAM or robot control."""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.trajectory = []
+        self.travel_m = 0.
+
+    def check_motion(self, t, q, stamp):
+        previous_t, previous_q = self.last_pose
+        dt = stamp-self.stamp
+        distance = float(np.linalg.norm(t-previous_t))
+        angle = 2*math.acos(min(1., abs(float(np.dot(q, previous_q)))))
+        if not 0 < dt <= 2.5:
+            raise ValueError('Depth/pose sequence has a time gap; start a new scan')
+        if distance > .2 or distance/dt > .45 or angle > math.radians(35) or angle/dt > 1.2:
+            raise ValueError('Pose jump or movement too fast; fusion stopped, robot not controlled')
+        if np.linalg.norm(t-self.anchor[0]) > 2. or self.travel_m+distance > 3.:
+            raise ValueError('Short-scan distance limit reached; save this model')
+
+    def add(self, frame, stride=4):
+        previous = self.last_pose
+        changed = super().add(frame, stride)
+        if changed:
+            t, q = self.last_pose
+            if previous is not None:
+                self.travel_m += float(np.linalg.norm(t-previous[0]))
+            self.trajectory.append({'position':t.tolist(), 'quaternion':q.tolist(), 'stamp':self.stamp})
+        return changed
+
+    def stats(self):
+        return dict(super().stats(), mode='moving_local_point_cloud', travel_m=self.travel_m,
+                    loop_closure=False, pose_source='vodom_original_depth_stamp',
+                    max_displacement_m=2., max_travel_m=3.)
 
 
 class FrameQueue:

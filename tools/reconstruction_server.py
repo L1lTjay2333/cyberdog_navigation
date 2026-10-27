@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from reconstruction_core import StaticModel
+from reconstruction_core import StaticModel, MovingModel
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,18 +27,21 @@ class Laboratory:
         self.stopped = threading.Event()
         self.started_unix = None
 
-    def start(self, seconds=30):
+    def start(self, seconds=30, mode='static'):
         if type(seconds) is not int or not 1 <= seconds <= 60:
             raise ValueError('采集时长须为1—60秒')
+        if mode not in ('static', 'moving'):
+            raise ValueError('未知采集模式')
         with self.lock:
             if self.active:
                 raise ValueError('已有静态采集会话')
-            self.model = StaticModel()
+            self.model = MovingModel() if mode == 'moving' else StaticModel()
             self.active, self.error, self.remote = True, None, {}
             self.stopped.clear()
             self.session = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
             self.started_unix = time.time()
-            self.status = '连接只读采集；请保持机器狗和场景静止'
+            self.status = ('连接移动采集；先静止5秒，等有效帧到达后再人工低速移动' if mode == 'moving'
+                           else '连接只读采集；请保持机器狗和场景静止')
             self.samples = []
         threading.Thread(target=self.capture, args=(seconds,), daemon=True).start()
 
@@ -52,6 +55,8 @@ class Laboratory:
         output = ROOT/'evidence'/'reconstruction'/self.session
         process = None
         watchdog = None
+        raw_saved_bytes = 0
+        moving = isinstance(self.model, MovingModel)
         try:
             output.mkdir(parents=True, exist_ok=False)
             if self.stopped.is_set():
@@ -81,11 +86,16 @@ class Laboratory:
                             raise ValueError('深度帧与位姿时间不匹配，停止融合')
                         with self.lock:
                             changed = self.model.add(record)
-                            self.status = '静态融合中；1厘米体素不代表1厘米精度'
+                            self.status = ('移动采集中：只读记录，不控制机器狗；里程计漂移尚未校正' if moving
+                                           else '静态融合中；1厘米体素不代表1厘米精度')
                             if changed:
-                                self.samples.append({'stamp': record['stamp'], 'source_age_s': record.get('source_age_s'), **self.model.stats()})
-                        if changed and len(self.samples) <= 2:
-                            (output/('frame_%02d.json'%len(self.samples))).write_text(json.dumps(record), encoding='utf-8')
+                                self.samples.append({'stamp': record['stamp'], 'source_age_s': record.get('source_age_s'),
+                                                     'translation':record['translation'],'quaternion':record['quaternion'], **self.model.stats()})
+                        if changed and (len(self.samples) <= 2 or moving and len(self.samples)%10 == 0):
+                            raw = json.dumps(record).encode('utf-8')
+                            if raw_saved_bytes+len(raw) <= 8*1024*1024:
+                                (output/('frame_%02d.json'%len(self.samples))).write_bytes(raw)
+                                raw_saved_bytes += len(raw)
                     else:
                         with self.lock:
                             self.remote = record
@@ -130,8 +140,10 @@ class Laboratory:
             result = dict(self.model.stats(), status=self.status, active=self.active,
                           session=self.session, started_unix=self.started_unix, error=self.error,
                           remote=self.remote, stable_points=len(points), control_requests=0,
-                          mode='static_local_point_cloud', calibration_status='未完成真实尺寸校准')
+                          mode='moving_local_point_cloud' if isinstance(self.model,MovingModel) else 'static_local_point_cloud',
+                          moving_supported=True, calibration_status='未完成真实尺寸校准')
             result['capture_reference'] = self.capture_reference()
+            result['trajectory'] = getattr(self.model,'trajectory',[])
             if include_points:
                 result['points'] = points[::max(1, (len(points)+29999)//30000)]
             return result
@@ -139,14 +151,16 @@ class Laboratory:
     def capture_reference(self):
         if self.model.anchor is None:
             return None
-        t, q = self.model.anchor
+        moving = isinstance(self.model, MovingModel)
+        t, q = self.model.last_pose if moving and self.model.last_pose is not None else self.model.anchor
         x, y, z, w = (float(v) for v in q)
         # Optical +Z is the camera viewing direction, not body +X or head joint yaw.
         forward = [2*(x*z+y*w), 2*(y*z-x*w), 1-2*(x*x+y*y)]
         return {'position':[float(v) for v in t], 'forward':forward,
                 'frame':self.model.frame, 'session':self.session,
                 'kind':'captured_camera_origin', 'live':False,
-                'label':'狗头参考（相机位置，采集时）'}
+                'stamp':self.model.stamp, 'latest_fused_pose':moving,
+                'label':'狗头参考（最新已融合帧）' if moving else '狗头参考（相机位置，采集时）'}
 
     def restore_latest(self):
         """Restore a completed local model for viewing, never start robot capture."""
@@ -155,6 +169,8 @@ class Laboratory:
             if not all((folder/name).is_file() for name in ('summary.json','frame_01.json','model.ply')):
                 continue
             summary = json.loads((folder/'summary.json').read_text(encoding='utf-8'))
+            if summary.get('stable_points',0) <= 0:
+                continue  # An empty/failed capture must not hide the last usable model.
             source = json.loads((folder/'frame_01.json').read_text(encoding='utf-8'))
             from reconstruction_core import checked_pose
             import numpy as np
@@ -166,7 +182,8 @@ class Laboratory:
             points = np.asarray([[float(v) for v in line.split()] for line in content.splitlines() if line.strip()], dtype=float).reshape((-1,3))
             if len(points) != count or not np.isfinite(points).all():
                 raise ValueError('Saved model data invalid')
-            model = StaticModel(voxel=float(summary['voxel_m']))
+            moving = summary.get('mode') == 'moving_local_point_cloud'
+            model = MovingModel(voxel=float(summary['voxel_m'])) if moving else StaticModel(voxel=float(summary['voxel_m']))
             scaled = np.floor(points/model.voxel)
             if not np.isfinite(scaled).all() or np.any(np.abs(scaled) > np.iinfo(np.int64).max//2):
                 raise ValueError('Saved model coordinates exceed bounds')
@@ -176,16 +193,23 @@ class Laboratory:
                 cell[0] += p;cell[1] += 1
             model.anchor, model.frame, model.source_frame = anchor, source['frame'], source['source_frame']
             model.accepted_frames, model.stamp = int(summary['accepted_frames']), float(summary['last_stamp'])
+            model.last_pose = anchor
+            if moving:
+                model.trajectory = summary.get('trajectory',[])[:360]
+                model.travel_m = float(summary.get('travel_m',0.))
+                if model.trajectory:
+                    last = model.trajectory[-1]
+                    model.last_pose = checked_pose(dict(source,translation=last['position'],quaternion=last['quaternion']))
             self.model, self.session, self.remote = model, folder.name, summary.get('remote',{})
             self.started_unix = summary.get('started_unix')
-            self.status = '已恢复上次静态模型；狗头为采集时相机参考，不是实时位置'
+            self.status = '已恢复上次模型；狗头为采集帧相机参考，不是实时位置'
             return True
         return False
 
     def ply(self):
         with self.lock:
             points, frame = self.model.points(), self.model.frame
-        header = 'ply\nformat ascii 1.0\ncomment frame %s\ncomment static voxel point model; scale unvalidated\nelement vertex %d\nproperty float x\nproperty float y\nproperty float z\nend_header\n'%(frame, len(points))
+        header = 'ply\nformat ascii 1.0\ncomment frame %s\ncomment local voxel point model; scale and drift unvalidated\nelement vertex %d\nproperty float x\nproperty float y\nproperty float z\nend_header\n'%(frame, len(points))
         return (header+''.join('%.7f %.7f %.7f\n'%tuple(p) for p in points)).encode('ascii')
 
 
@@ -222,7 +246,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(data, dict):
                 raise ValueError('请求格式错误')
             if self.path == '/start':
-                LAB.start(data.get('seconds', 30))
+                LAB.start(data.get('seconds', 30), mode=data.get('mode','static'))
             elif self.path == '/stop':
                 LAB.stop()
             else:

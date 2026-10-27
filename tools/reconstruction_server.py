@@ -9,6 +9,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from reconstruction_core import StaticModel, MovingModel
+from reconstruction_archive import FrameArchive
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -40,6 +41,7 @@ class Laboratory:
         self.samples = []
         self.stopped = threading.Event()
         self.started_unix = None
+        self.raw_archive = None
 
     def start(self, seconds=30, mode='static'):
         if type(seconds) is not int or not 1 <= seconds <= 60:
@@ -57,6 +59,7 @@ class Laboratory:
             self.status = ('连接移动采集；先静止5秒，等有效帧到达后再人工低速移动' if mode == 'moving'
                            else '连接只读采集；请保持机器狗和场景静止')
             self.samples = []
+            self.raw_archive = None
         threading.Thread(target=self.capture, args=(seconds,), daemon=True).start()
 
     def stop(self):
@@ -73,6 +76,7 @@ class Laboratory:
         moving = isinstance(self.model, MovingModel)
         try:
             output.mkdir(parents=True, exist_ok=False)
+            self.raw_archive = FrameArchive(output/'frames.jsonl')
             if self.stopped.is_set():
                 return
             helper = (ROOT/'tools/reconstruction_core.py').read_text(encoding='utf-8')
@@ -103,6 +107,7 @@ class Laboratory:
                             self.status = ('移动采集中：只读记录，不控制机器狗；里程计漂移尚未校正' if moving
                                            else '静态融合中；1厘米体素不代表1厘米精度')
                             if changed:
+                                self.raw_archive.append(record)
                                 self.samples.append({'stamp': record['stamp'], 'source_age_s': record.get('source_age_s'),
                                                      'translation':record['translation'],'quaternion':record['quaternion'], **self.model.stats()})
                         if changed and (len(self.samples) <= 2 or moving and len(self.samples)%10 == 0):
@@ -160,6 +165,7 @@ class Laboratory:
                           remote=self.remote, stable_points=len(points), control_requests=0,
                           mode='moving_local_point_cloud' if isinstance(self.model,MovingModel) else 'static_local_point_cloud',
                           moving_supported=True, calibration_status='未完成真实尺寸校准')
+            result['raw_archive'] = self.raw_archive.stats(self.model.accepted_frames) if self.raw_archive else None
             result['capture_reference'] = self.capture_reference()
             result['trajectory'] = getattr(self.model,'trajectory',[])
             if include_points:

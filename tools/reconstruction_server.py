@@ -131,9 +131,56 @@ class Laboratory:
                           session=self.session, started_unix=self.started_unix, error=self.error,
                           remote=self.remote, stable_points=len(points), control_requests=0,
                           mode='static_local_point_cloud', calibration_status='未完成真实尺寸校准')
+            result['capture_reference'] = self.capture_reference()
             if include_points:
                 result['points'] = points[::max(1, (len(points)+29999)//30000)]
             return result
+
+    def capture_reference(self):
+        if self.model.anchor is None:
+            return None
+        t, q = self.model.anchor
+        x, y, z, w = (float(v) for v in q)
+        # Optical +Z is the camera viewing direction, not body +X or head joint yaw.
+        forward = [2*(x*z+y*w), 2*(y*z-x*w), 1-2*(x*x+y*y)]
+        return {'position':[float(v) for v in t], 'forward':forward,
+                'frame':self.model.frame, 'session':self.session,
+                'kind':'captured_camera_origin', 'live':False,
+                'label':'狗头参考（相机位置，采集时）'}
+
+    def restore_latest(self):
+        """Restore a completed local model for viewing, never start robot capture."""
+        folders = sorted((ROOT/'evidence/reconstruction').glob('*'), reverse=True)
+        for folder in folders:
+            if not all((folder/name).is_file() for name in ('summary.json','frame_01.json','model.ply')):
+                continue
+            summary = json.loads((folder/'summary.json').read_text(encoding='utf-8'))
+            source = json.loads((folder/'frame_01.json').read_text(encoding='utf-8'))
+            from reconstruction_core import checked_pose
+            import numpy as np
+            anchor = checked_pose(source)
+            header, content = (folder/'model.ply').read_text(encoding='ascii').split('end_header\n', 1)
+            count = int(next(line.split()[2] for line in header.splitlines() if line.startswith('element vertex ')))
+            if not 0 <= count <= 200000 or summary['frame'] != source['frame']:
+                raise ValueError('Saved model bounds or reference frame invalid')
+            points = np.asarray([[float(v) for v in line.split()] for line in content.splitlines() if line.strip()], dtype=float).reshape((-1,3))
+            if len(points) != count or not np.isfinite(points).all():
+                raise ValueError('Saved model data invalid')
+            model = StaticModel(voxel=float(summary['voxel_m']))
+            scaled = np.floor(points/model.voxel)
+            if not np.isfinite(scaled).all() or np.any(np.abs(scaled) > np.iinfo(np.int64).max//2):
+                raise ValueError('Saved model coordinates exceed bounds')
+            for key, p in zip(scaled.astype(np.int64),points):
+                # Rounding in ASCII export can put neighbors in the same voxel.
+                cell = model.cells.setdefault(tuple(key),[np.zeros(3),0,2])
+                cell[0] += p;cell[1] += 1
+            model.anchor, model.frame, model.source_frame = anchor, source['frame'], source['source_frame']
+            model.accepted_frames, model.stamp = int(summary['accepted_frames']), float(summary['last_stamp'])
+            self.model, self.session, self.remote = model, folder.name, summary.get('remote',{})
+            self.started_unix = summary.get('started_unix')
+            self.status = '已恢复上次静态模型；狗头为采集时相机参考，不是实时位置'
+            return True
+        return False
 
     def ply(self):
         with self.lock:
@@ -191,8 +238,11 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--capture-seconds', type=int, help='Explicitly start one bounded, read-only static capture')
+    parser.add_argument('--restore-latest', action='store_true', help='View the latest saved local model without robot access')
     args = parser.parse_args()
     server = ThreadingHTTPServer(('127.0.0.1', 8766), Handler)
+    if args.restore_latest:
+        LAB.restore_latest()
     if args.capture_seconds is not None:
         LAB.start(args.capture_seconds)
     print('Static reconstruction laboratory: http://127.0.0.1:8766/', flush=True)

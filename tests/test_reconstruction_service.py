@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import unittest
 import tempfile
+import numpy as np
 from unittest.mock import patch
 import reconstruction_server as server
 
@@ -42,6 +43,32 @@ class ServiceTests(unittest.TestCase):
         text=lab.ply().decode('ascii')
         self.assertIn('element vertex 0\n',text)
         self.assertTrue(text.endswith('end_header\n'))
+
+    def test_head_reference_uses_optical_forward_and_session(self):
+        from test_reconstruction_core import frame
+        lab=server.Laboratory();lab.session='test-head'
+        lab.model.add(frame(translation=[1.,2.,3.],quaternion=[0.,float(np.sin(np.pi/4)),0.,float(np.cos(np.pi/4))]),stride=1)
+        reference=lab.report()['capture_reference']
+        np.testing.assert_allclose(reference['position'],[1,2,3])
+        np.testing.assert_allclose(reference['forward'],[1,0,0],atol=1e-10)
+        self.assertEqual(reference['session'],'test-head')
+        self.assertFalse(reference['live'])
+
+    def test_restore_model_preserves_capture_reference_without_robot(self):
+        from test_reconstruction_core import frame
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);folder=root/'evidence/reconstruction/test-session';folder.mkdir(parents=True)
+            old=server.Laboratory();old.session=folder.name
+            old.model.add(frame(),stride=1);old.model.add(frame(2.),stride=1)
+            (folder/'model.ply').write_bytes(old.ply())
+            (folder/'summary.json').write_text(json.dumps(old.report(False)))
+            (folder/'frame_01.json').write_text(json.dumps(frame()))
+            lab=server.Laboratory()
+            with patch.object(server,'ROOT',root),patch.object(server.subprocess,'Popen') as process:
+                self.assertTrue(lab.restore_latest())
+            process.assert_not_called();self.assertFalse(lab.active)
+            self.assertEqual(lab.report()['stable_points'],4)
+            self.assertEqual(lab.report()['capture_reference']['session'],folder.name)
 
     def test_early_stop_does_not_open_a_connection_or_report_fault(self):
         with tempfile.TemporaryDirectory() as directory:

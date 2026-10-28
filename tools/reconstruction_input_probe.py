@@ -19,6 +19,8 @@ n=rclpy.create_node('reconstruction_input_check',enable_rosout=False,start_param
 buffer=Buffer();listener=TransformListener(buffer,n);queue=FrameQueue()
 info=[None];counts={'images':0,'valid_depth':0,'matched_pose':0};changes=[]
 last_valid_stamp=[0]
+last_sample=[0.]
+tf_errors={};last_tf_error=['']
 result={'ready':False,'camera_ready':False,'control_requests':0}
 
 def call(path,kind,request):
@@ -41,6 +43,9 @@ def guard():
 
 def receive(message):
     counts['images']+=1
+    now=time.monotonic()
+    if now-last_sample[0]<1./3:return
+    last_sample[0]=now
     calibration=info[0]
     if calibration is None:return
     stamp=Time.from_msg(message.header.stamp)
@@ -76,7 +81,10 @@ def lookup(item):
         if (not all(math.isfinite(v) for v in values) or abs(tfstamp-item['stamp'])>1e-6
                 or not .5<=math.sqrt(sum(v*v for v in values[3:]))<=1.5):return None
         return True
-    except Exception:return None
+    except Exception as error:
+        name=type(error).__name__;tf_errors[name]=tf_errors.get(name,0)+1
+        last_tf_error[0]=str(error)[:400]
+        return None
 
 try:
     task=task_state();state=camera_state('camera');other=camera_state('camera_align')
@@ -109,9 +117,11 @@ try:
     elif not result['camera_ready']:
         result['message']=('深度相机未开启，请点击连接/检查深度相机' if result.get('camera_state')!=3
                            else '相机报告已启用，但未收到足够的新鲜有效深度帧，请检查设备输入')
-    else:result['message']='深度相机正常，但缺少同时间位姿；请连接相机以准备扫描输入'
+    else:
+        result['message']=('深度相机正常，但当前扫描任务未提供同时间位姿，暂不能开始测试'
+                           if result['task']['status']==5 else '深度相机正常，尚缺扫描位姿输入；请点击连接/检查深度相机')
 except Exception as error:result.update(ready=False,message=str(error))
 finally:
-    result.update(counts=counts,changes=changes)
+    result.update(counts=counts,changes=changes,tf_errors=tf_errors,last_tf_error=last_tf_error[0])
     print(json.dumps(result,allow_nan=False),flush=True)
     n.destroy_node();rclpy.shutdown()

@@ -102,10 +102,24 @@ def compare_pair(source, target):
 
 
 def benchmark(session):
-    files = sorted(Path(session).glob('frame_*.json'))
-    if not 2 <= len(files) <= 100:
-        raise ValueError('Benchmark expects 2 to 100 saved keyframes')
-    frames = [json.loads(file.read_text(encoding='utf-8')) for file in files]
+    session = Path(session)
+    archive = session/'frames.jsonl'
+    if archive.is_file():
+        if archive.stat().st_size > 64*1024*1024:
+            raise ValueError('Archive exceeds supported size')
+        frames = []
+        with archive.open(encoding='utf-8') as stream:
+            for line in stream:
+                frames.append(json.loads(line))
+                if len(frames) > 360:
+                    raise ValueError('Archive exceeds supported frame count')
+        names = ['archive_%04d'%(i+1) for i in range(len(frames))]
+    else:
+        files = sorted(session.glob('frame_*.json'))
+        frames = [json.loads(file.read_text(encoding='utf-8')) for file in files]
+        names = [file.name for file in files]
+    if not 2 <= len(frames) <= 360:
+        raise ValueError('Benchmark expects 2 to 360 frames')
     for frame in frames:checked_pose(frame)
     if len({(f['frame'], f['source_frame']) for f in frames}) != 1:
         raise ValueError('Camera or world coordinate frame changed')
@@ -114,12 +128,21 @@ def benchmark(session):
     clouds = [decode_depth_frame(frame) for frame in frames]
     pairs = list(zip(range(len(frames)-1), range(1, len(frames))))
     if len(frames)>2:pairs.append((0, len(frames)-1))
-    rows = [dict(compare_pair(clouds[j], clouds[i]), reference=files[i].name,
-                 source=files[j].name, gap_s=frames[j]['stamp']-frames[i]['stamp']) for i,j in pairs]
+    rows = []
+    for i,j in pairs:
+        rows.append(dict(compare_pair(clouds[j], clouds[i]), reference=names[i],
+                         source=names[j], gap_s=frames[j]['stamp']-frames[i]['stamp']))
+    metadata = json.loads((session/'summary.json').read_text(encoding='utf-8')) if (session/'summary.json').is_file() else {}
+    archive_info = metadata.get('raw_archive') or {}
+    complete = (archive.is_file() and archive_info.get('complete') is True
+                and len(frames) == archive_info.get('frames') == metadata.get('accepted_frames'))
     return {'open3d':o3d.__version__, 'session':str(Path(session).resolve()), 'pairs':rows,
+            'input_frames':len(frames), 'input_source':'frames.jsonl' if archive.is_file() else 'keyframes',
+            'all_accepted_frames_evaluated':bool(complete), 'capture_termination':metadata.get('error'),
             'online_enabled':False, 'control_requests':0, 'full_session_replay':False,
             'absolute_accuracy_validated':False,
-            'limitations':['Sparse saved keyframe pairs, not continuous camera tracking or large-turn validation.',
+            'limitations':['Independent frame-pair evaluations, not a cumulatively corrected trajectory.',
+                          'Archive completeness covers accepted frames, not motion after capture termination.',
                           'Held-out source samples are not independent metrology.',
                           'Solvers share samples/normals/Huber scale, but differ in iteration and convergence rules.',
                           'Custom output is the guarded applied transform; rejected internal proposals are not reconstructed.',

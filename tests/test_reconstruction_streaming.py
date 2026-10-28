@@ -46,7 +46,8 @@ class StreamingTests(unittest.TestCase):
         with patch.object(server.threading,'Thread') as thread:
             lab.start(300,'moving')
             thread.return_value.start.assert_called_once()
-        self.assertTrue(lab.active)
+        self.assertTrue(lab.preparing)
+        self.assertFalse(lab.active)
         with self.assertRaises(ValueError):server.Laboratory().start(301,'moving')
         with self.assertRaises(ValueError):server.Laboratory().start(61,'static')
 

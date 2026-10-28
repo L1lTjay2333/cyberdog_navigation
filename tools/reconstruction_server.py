@@ -11,6 +11,7 @@ from pathlib import Path
 from reconstruction_core import StaticModel, MovingModel
 from reconstruction_archive import FrameArchive
 from reconstruction_streaming import StreamingModel
+from reconstruction_readiness import prepare_inputs
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -43,6 +44,9 @@ class Laboratory:
         self.stopped = threading.Event()
         self.started_unix = None
         self.raw_archive = None
+        self.preparing = False
+        self.running_job = False
+        self.camera = {'ready':False,'camera_ready':False,'message':'尚未检查；每次开始采集都会重新核验'}
 
     def start(self, seconds=30, mode='static'):
         if mode not in ('static', 'moving'):
@@ -51,21 +55,65 @@ class Laboratory:
         if type(seconds) is not int or not 1 <= seconds <= limit:
             raise ValueError('本模式采集时长须为1—%d秒'%limit)
         with self.lock:
-            if self.active:
-                raise ValueError('已有静态采集会话')
-            self.model = MovingModel() if mode == 'moving' else StaticModel()
-            self.active, self.error, self.remote = True, None, {}
+            if self.active or self.preparing or self.running_job:
+                raise ValueError('已有采集或相机准备正在进行')
+            self.preparing = True
+            self.running_job = True
             self.stopped.clear()
-            self.session = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
-            self.started_unix = time.time()
-            self.status = ('连接移动采集；先静止5秒，等有效帧到达后再人工低速移动' if mode == 'moving'
-                           else '连接只读采集；请保持机器狗和场景静止')
-            self.samples = []
-            self.raw_archive = None
-        threading.Thread(target=self.capture, args=(seconds,), daemon=True).start()
+            self.camera = dict(self.camera,ready=False,message='采集前正在检查深度图与同时间位姿')
+            self.status = self.camera['message']
+        threading.Thread(target=self.prepare_job,args=(False,seconds,mode),daemon=True).start()
+
+    def connect_camera(self):
+        with self.lock:
+            if self.active or self.preparing or self.running_job:raise ValueError('请先结束当前采集或相机检查')
+            self.preparing = True;self.stopped.clear()
+            self.running_job = True
+            self.camera = dict(self.camera,ready=False,message='正在连接/检查深度相机与扫描输入')
+            self.status = self.camera['message']
+        threading.Thread(target=self.prepare_job,args=(True,None,None),daemon=True).start()
+
+    def prepare_job(self,connect,seconds,mode):
+        try:
+            def process_callback(process):self.process=process
+            result=prepare_inputs(ROOT,connect,self.stopped,process_callback)
+            with self.lock:
+                self.camera=result
+                self.status=result.get('message','输入检查结束')
+            if self.stopped.is_set() or not result.get('ready') or seconds is None:return
+            with self.lock:
+                if self.stopped.is_set():return
+                self.begin_capture(seconds,mode)
+            self.capture(seconds)
+        except Exception as exc:
+            message=capture_failure(getattr(exc,'stderr',''),exc)
+            with self.lock:
+                self.camera=dict(self.camera,ready=False,message=message)
+                self.status=message
+        finally:
+            with self.lock:
+                self.preparing=False
+                self.running_job=False
+                if not self.active:self.process=None
+                if self.stopped.is_set():
+                    self.camera=dict(self.camera,ready=False,message='电脑准备/采集已取消；下次开始会重新检查')
+
+    def begin_capture(self,seconds,mode):
+        """Caller holds lock, after a fresh successful input check."""
+        self.preparing = False
+        self.model = MovingModel() if mode == 'moving' else StaticModel()
+        self.active, self.error, self.remote = True, None, {}
+        self.session = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        self.started_unix = time.time()
+        self.status = ('连接移动采集；先静止5秒，等有效帧到达后再人工低速移动' if mode == 'moving'
+                       else '连接只读采集；请保持机器狗和场景静止')
+        self.samples = []
+        self.raw_archive = None
 
     def stop(self):
         self.stopped.set()
+        with self.lock:
+            if self.preparing:self.status='已请求取消准备；等待接口返回，不会开始采集'
         process = self.process
         if process is not None and process.poll() is None:
             process.terminate()  # Stop only this SSH subscriber, never a robot task.
@@ -125,6 +173,7 @@ class Laboratory:
                             self.remote = record
                             if record.get('event') == 'error':
                                 self.error = record.get('message', '采集数据失效')
+                                self.camera=dict(self.camera,ready=False,message=self.error)
                 code = process.wait(timeout=5)
                 if code and not self.stopped.is_set():
                     raise RuntimeError('相机订阅退出，请查看本次stderr；未操作机器人')
@@ -136,6 +185,7 @@ class Laboratory:
             with self.lock:
                 if not self.stopped.is_set():
                     self.error = capture_failure(details, exc)
+                    self.camera=dict(self.camera,ready=False,message=self.error)
         finally:
             if watchdog:
                 watchdog.cancel()
@@ -175,6 +225,7 @@ class Laboratory:
                           remote=self.remote, stable_points=count, control_requests=0,
                           mode='moving_local_point_cloud' if isinstance(self.model,MovingModel) else 'static_local_point_cloud',
                           moving_supported=True, calibration_status='未完成真实尺寸校准')
+            result.update(preparing=self.preparing,camera=self.camera,busy=self.active or self.preparing or self.running_job)
             result['raw_archive'] = self.raw_archive.stats(self.model.accepted_frames) if self.raw_archive else None
             result['capture_reference'] = self.capture_reference()
             result['trajectory'] = getattr(self.model,'trajectory',[])
@@ -310,6 +361,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('请求格式错误')
             if self.path == '/start':
                 LAB.start(data.get('seconds', 30), mode=data.get('mode','static'))
+            elif self.path == '/camera/connect':
+                LAB.connect_camera()
             elif self.path == '/stop':
                 LAB.stop()
             else:

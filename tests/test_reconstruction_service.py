@@ -33,7 +33,7 @@ class ServiceTests(unittest.TestCase):
         handler.path=path;handler.rfile=io.BytesIO(raw);out=[]
         handler.send=lambda data,kind='json',status=200:out.append((status,json.loads(data)))
         calls=[]
-        with patch.object(server,'LAB',SimpleNamespace(start=lambda seconds,mode='static':calls.append(seconds if mode=='static' else (seconds,mode)),stop=lambda:calls.append('stop'))):
+        with patch.object(server,'LAB',SimpleNamespace(start=lambda seconds,mode='static':calls.append(seconds if mode=='static' else (seconds,mode)),stop=lambda:calls.append('stop'),connect_camera=lambda:calls.append('camera_connect'))):
             handler.do_POST()
         return out,calls
 
@@ -47,6 +47,12 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(calls,[12]);self.assertTrue(out[0][1]['ok'])
         out,calls=self.request('http://127.0.0.1:8766',{},'/stop')
         self.assertEqual(calls,['stop'])
+
+    def test_explicit_camera_connect_endpoint_is_origin_guarded(self):
+        out,calls=self.request('http://127.0.0.1:8766',{},'/camera/connect')
+        self.assertEqual(calls,['camera_connect']);self.assertTrue(out[0][1]['ok'])
+        out,calls=self.request('https://untrusted.invalid',{},'/camera/connect')
+        self.assertFalse(calls);self.assertEqual(out[0][0],400)
 
     def test_moving_capture_is_explicit_and_keeps_no_motion_interface(self):
         out,calls=self.request('http://127.0.0.1:8766',{'seconds':60,'mode':'moving'})

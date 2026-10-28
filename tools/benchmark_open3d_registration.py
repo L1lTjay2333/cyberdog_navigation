@@ -105,7 +105,7 @@ def benchmark(session):
     session = Path(session)
     archive = session/'frames.jsonl'
     if archive.is_file():
-        if archive.stat().st_size > 64*1024*1024:
+        if archive.stat().st_size > 256*1024*1024:
             raise ValueError('Archive exceeds supported size')
         frames = []
         with archive.open(encoding='utf-8') as stream:

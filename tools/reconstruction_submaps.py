@@ -1,4 +1,4 @@
-"""Bounded, append-only PC submap storage for offline reconstruction experiments."""
+"""Bounded, append-only PC submap storage shared by online and offline fusion."""
 import json
 from pathlib import Path
 import numpy as np

@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from reconstruction_core import StaticModel, MovingModel
 from reconstruction_archive import FrameArchive
+from reconstruction_streaming import StreamingModel
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -44,10 +45,11 @@ class Laboratory:
         self.raw_archive = None
 
     def start(self, seconds=30, mode='static'):
-        if type(seconds) is not int or not 1 <= seconds <= 60:
-            raise ValueError('采集时长须为1—60秒')
         if mode not in ('static', 'moving'):
             raise ValueError('未知采集模式')
+        limit = 300 if mode=='moving' else 60
+        if type(seconds) is not int or not 1 <= seconds <= limit:
+            raise ValueError('本模式采集时长须为1—%d秒'%limit)
         with self.lock:
             if self.active:
                 raise ValueError('已有静态采集会话')
@@ -76,9 +78,12 @@ class Laboratory:
         moving = isinstance(self.model, MovingModel)
         try:
             output.mkdir(parents=True, exist_ok=False)
-            self.raw_archive = FrameArchive(output/'frames.jsonl')
+            self.raw_archive = FrameArchive(output/'frames.jsonl',max_bytes=(256 if moving else 64)*1024*1024)
             if self.stopped.is_set():
                 return
+            if moving:
+                with self.lock:
+                    self.model = StreamingModel(output/'submaps')
             helper = (ROOT/'tools/reconstruction_core.py').read_text(encoding='utf-8')
             code = 'import sys,types\nm=types.ModuleType("reconstruction_core");sys.modules["reconstruction_core"]=m\nexec('+repr(helper)+',m.__dict__)\n'
             code += 'CAPTURE_SECONDS='+str(seconds)+'\n'+(ROOT/'tools/reconstruction_capture.py').read_text(encoding='utf-8')
@@ -144,12 +149,15 @@ class Laboratory:
             with self.lock:
                 self.status = self.error or ('采集已结束；保留模型，尚未完成绝对精度验收' if self.model.accepted_frames else '未收到可融合帧；检查相机与同时间TF')
             try:
+                if isinstance(self.model,StreamingModel):
+                    with self.lock:self.model.finish()
                 snapshot = self.report(include_points=False)
                 snapshot['active'] = False
                 (output/'summary.json').write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding='utf-8')
                 (output/'samples.json').write_text(json.dumps(self.samples, indent=2), encoding='utf-8')
-                (output/'model.ply').write_bytes(self.ply())
-            except OSError as exc:
+                with (output/'model.ply').open('wb') as model_file:
+                    for chunk in self.ply_chunks():model_file.write(chunk)
+            except (OSError,ValueError) as exc:
                 with self.lock:
                     self.error = self.status = '模型保存失败：'+str(exc)
             finally:
@@ -159,10 +167,12 @@ class Laboratory:
 
     def report(self, include_points=True):
         with self.lock:
-            points = self.model.points()
+            streaming = isinstance(self.model,StreamingModel)
+            points = self.model.preview() if streaming and include_points else [] if streaming else self.model.points()
+            count = self.model.stable_count() if streaming else len(points)
             result = dict(self.model.stats(), status=self.status, active=self.active,
                           session=self.session, started_unix=self.started_unix, error=self.error,
-                          remote=self.remote, stable_points=len(points), control_requests=0,
+                          remote=self.remote, stable_points=count, control_requests=0,
                           mode='moving_local_point_cloud' if isinstance(self.model,MovingModel) else 'static_local_point_cloud',
                           moving_supported=True, calibration_status='未完成真实尺寸校准')
             result['raw_archive'] = self.raw_archive.stats(self.model.accepted_frames) if self.raw_archive else None
@@ -196,6 +206,13 @@ class Laboratory:
             if summary.get('stable_points',0) <= 0:
                 continue  # An empty/failed capture must not hide the last usable model.
             source = json.loads((folder/'frame_01.json').read_text(encoding='utf-8'))
+            if summary.get('streaming_submaps'):
+                if not (folder/'submaps/manifest.json').is_file():continue
+                self.model = StreamingModel.restore(folder/'submaps',summary,source)
+                self.session,self.remote = folder.name,summary.get('remote',{})
+                self.started_unix = summary.get('started_unix')
+                self.status = '已恢复分块模型；显示为抽样预览，完整点保存在磁盘'
+                return True
             from reconstruction_core import checked_pose
             import numpy as np
             anchor = checked_pose(source)
@@ -230,11 +247,25 @@ class Laboratory:
             return True
         return False
 
-    def ply(self):
+    def ply_chunks(self):
         with self.lock:
-            points, frame = self.model.points(), self.model.frame
-        header = 'ply\nformat ascii 1.0\ncomment frame %s\ncomment local voxel point model; scale and drift unvalidated\nelement vertex %d\nproperty float x\nproperty float y\nproperty float z\nend_header\n'%(frame, len(points))
-        return (header+''.join('%.7f %.7f %.7f\n'%tuple(p) for p in points)).encode('ascii')
+            frame = self.model.frame
+            if isinstance(self.model,StreamingModel):
+                count,batches = self.model.export_snapshot()
+                note = 'submap boundary points may repeat; no global deduplication'
+            else:
+                points = self.model.points();count = len(points)
+                batches = lambda:iter([points])
+                note = 'local voxel point model; scale and drift unvalidated'
+        header = 'ply\nformat ascii 1.0\ncomment frame %s\ncomment %s\nelement vertex %d\nproperty float x\nproperty float y\nproperty float z\nend_header\n'%(frame,note,count)
+        yield header.encode('ascii')
+        for batch in batches():
+            for start in range(0,len(batch),2048):
+                yield ''.join('%.7f %.7f %.7f\n'%tuple(p) for p in batch[start:start+2048]).encode('ascii')
+
+    def ply(self):
+        """Small-model compatibility helper; HTTP and disk exports stream chunks."""
+        return b''.join(self.ply_chunks())
 
 
 LAB = Laboratory()
@@ -255,7 +286,15 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == '/state':
             self.send(json.dumps(LAB.report(), ensure_ascii=False, allow_nan=False).encode('utf-8'))
         elif self.path == '/model.ply':
-            self.send(LAB.ply(), 'application/octet-stream')
+            self.send_response(200)
+            self.send_header('Content-Type','application/octet-stream')
+            self.send_header('Cache-Control','no-store')
+            self.send_header('Connection','close')
+            self.end_headers()
+            self.close_connection = True
+            try:
+                for chunk in LAB.ply_chunks():self.wfile.write(chunk)
+            except (BrokenPipeError,ConnectionResetError):pass
         else:
             self.send(b'not found', 'text/plain', 404)
 

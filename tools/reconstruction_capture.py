@@ -12,7 +12,7 @@ from tf2_ros import Buffer, TransformListener
 from reconstruction_core import FrameQueue
 
 seconds = int(globals().get('CAPTURE_SECONDS', 30))
-if not 1 <= seconds <= 60:
+if not 1 <= seconds <= 300:
     raise ValueError('Capture duration outside bounds')
 namespace = '/mi_desktop_48_b0_2d_7b_0b_4a'
 rclpy.init(args=[])

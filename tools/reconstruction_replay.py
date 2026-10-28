@@ -18,7 +18,7 @@ def replay(session, output, refine=False, max_voxels=200000):
 
     def records():
         if archive.is_file():
-            if archive.stat().st_size > 64*1024*1024:
+            if archive.stat().st_size > 256*1024*1024:
                 raise ValueError('Raw frame archive exceeds size limit')
             with archive.open(encoding='utf-8') as stream:
                 for index, line in enumerate(stream, 1):

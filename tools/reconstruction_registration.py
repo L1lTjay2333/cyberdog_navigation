@@ -35,6 +35,19 @@ def apply_transform(points, transform):
     return np.asarray(points).dot(transform[:3, :3].T) + transform[:3, 3]
 
 
+def surface_geometry(target):
+    """Shared deterministic PCA normals for like-for-like offline benchmarks."""
+    tree = cKDTree(target)
+    distances, neighbors = tree.query(target, k=16)
+    patches = target[neighbors]
+    centered = patches - patches.mean(axis=1)[:, None, :]
+    covariance = np.einsum('nki,nkj->nij', centered, centered) / 16
+    values, vectors = np.linalg.eigh(covariance)
+    normals = vectors[:, :, 0]
+    good = (distances[:, -1] < .15) & (values[:, 1] > 1e-7) & (values[:, 0] < .12*values[:, 1])
+    return tree, normals, good
+
+
 def register_clouds(source, target):
     """Robust point-to-plane ICP with observability and held-out quality gates.
 
@@ -49,14 +62,7 @@ def register_clouds(source, target):
               'applied_correction_angle_deg':0., 'applied_correction_at_centroid_m':0.}
     if min(len(source), len(target)) < 100:
         return result
-    tree = cKDTree(target)
-    distances, neighbors = tree.query(target, k=16)
-    patches = target[neighbors]
-    centered = patches - patches.mean(axis=1)[:, None, :]
-    covariance = np.einsum('nki,nkj->nij', centered, centered) / 16
-    values, vectors = np.linalg.eigh(covariance)
-    normals = vectors[:, :, 0]
-    good_normals = (distances[:, -1] < .15) & (values[:, 1] > 1e-7) & (values[:, 0] < .12*values[:, 1])
+    tree, normals, good_normals = surface_geometry(target)
     if good_normals.sum() < 100:
         result['reason'] = 'insufficient_local_surfaces'
         return result

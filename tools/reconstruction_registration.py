@@ -48,6 +48,20 @@ def surface_geometry(target):
     return tree, normals, good
 
 
+def residual_decision(before,after):
+    """Called ONLY after overlap, observability and correction bounds pass.
+
+    Certifying an unchanged pose depends on its original residual, not the size
+    of a proposed update that will never be applied.
+    """
+    if not math.isfinite(before) or not math.isfinite(after) or min(before,after)<0:
+        return 'reject'
+    if after>.015 or after>before+.0002:return 'reject'
+    if before-after>=.0002 and after<=before*.95:return 'apply_correction'
+    if before<=.012:return 'keep_odometry'
+    return 'reject'
+
+
 def register_clouds(source, target):
     """Robust point-to-plane ICP with observability and held-out quality gates.
 
@@ -57,7 +71,7 @@ def register_clouds(source, target):
     """
     source, target = sampled_cloud(source), sampled_cloud(target)
     identity = np.eye(4)
-    result = {'accepted':False, 'reason':'too_few_points', 'transform':identity.tolist(),
+    result = {'accepted':False, 'decision':'reject', 'reason':'too_few_points', 'transform':identity.tolist(),
               'source_points':len(source), 'target_points':len(target),
               'applied_correction_angle_deg':0., 'applied_correction_at_centroid_m':0.}
     if min(len(source), len(target)) < 100:
@@ -131,17 +145,16 @@ def register_clouds(source, target):
         return result
     after = float(np.sqrt(np.mean(final_residual[evaluation]**2)))
     result['candidate_validation_rmse_m'] = after
+    decision=residual_decision(before,after)
+    result['decision']=decision
     if after > .015 or after > before + .0002:
         result['reason'] = 'validation_residual_too_large'
         return result
-    if before > .002 and after > .95*before:
-        # A tiny proposed correction with already consistent geometry is not
-        # tracking loss. Certify the identity, instead of introducing a change
-        # that failed the improvement test. This is distinct from blind fallback.
-        if before <= .012 and center_shift <= .003 and angle <= math.radians(.3):
-            result.update(accepted=True, reason='consistent_without_correction')
-        else:
-            result['reason'] = 'no_significant_improvement'
+    if decision=='keep_odometry':
+        result.update(accepted=True,reason='consistent_without_correction')
+        return result
+    if decision=='reject':
+        result['reason']='no_significant_improvement'
         return result
     result.update(accepted=True, reason='accepted_local_refinement', transform=transform.tolist(),
                   applied_correction_angle_deg=math.degrees(angle), applied_correction_at_centroid_m=center_shift)

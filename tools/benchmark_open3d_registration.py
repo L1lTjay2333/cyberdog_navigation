@@ -11,13 +11,13 @@ import numpy as np
 import open3d as o3d
 from scipy.spatial.transform import Rotation
 from reconstruction_core import checked_pose, decode_depth_frame
-from reconstruction_registration import sampled_cloud, surface_geometry, apply_transform, register_clouds
+from reconstruction_registration import sampled_cloud, surface_geometry, apply_transform, register_clouds,residual_decision
 
 
 def assess_candidate(source, target, transform):
     """Common held-out geometry checks; acceptability is not absolute accuracy."""
     transform = np.asarray(transform, dtype=float)
-    rejected = {'qualified':False}
+    rejected = {'qualified':False,'decision':'reject'}
     if (transform.shape != (4, 4) or not np.isfinite(transform).all()
             or not np.allclose(transform[3], [0., 0., 0., 1.], atol=1e-8)
             or not np.allclose(transform[:3, :3].T.dot(transform[:3, :3]), np.eye(3), atol=1e-6)
@@ -60,13 +60,13 @@ def assess_candidate(source, target, transform):
         result['reason'] = 'lost_validation_overlap'
     elif after > .015 or after > before+.0002:
         result['reason'] = 'validation_residual_too_large'
-    elif before > .002 and after > before*.95:
-        if before <= .012 and shift <= .003 and angle <= math.radians(.3):
-            result.update(qualified=True, reason='consistent_without_significant_gain')
+    elif residual_decision(before,after)!='apply_correction':
+        if residual_decision(before,after)=='keep_odometry':
+            result.update(qualified=True,decision='keep_odometry',reason='consistent_without_significant_gain')
         else:
             result['reason'] = 'no_significant_improvement'
     else:
-        result.update(qualified=True, reason='qualified_local_candidate')
+        result.update(qualified=True,decision='apply_correction',reason='qualified_local_candidate')
     return result
 
 

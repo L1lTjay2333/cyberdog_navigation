@@ -13,7 +13,8 @@ from reconstruction_multiscale import propose,track_step
 from benchmark_open3d_registration import assess_candidate
 
 
-def load_views(session):
+def load_views(session,max_depth=4.):
+    if not np.isfinite(max_depth) or not .3<=max_depth<=4.:raise ValueError('Depth limit must be 0.3 to 4 m')
     session=Path(session)
     archive=session/'frames.jsonl'
     if not 0<archive.stat().st_size<=256*1024*1024:raise ValueError('Archive size limit')
@@ -30,13 +31,13 @@ def load_views(session):
     for record in frames:
         t,q=checked_pose(record);poses.append((t,Rotation.from_quat(q)))
         image,depth=read_depth(record);filtered,_=filter_depth(depth)
-        clouds.append(sampled_cloud(decode_depth_frame(masked_record(record,image,filtered>0))))
+        clouds.append(sampled_cloud(decode_depth_frame(masked_record(record,image,(filtered>0)&(filtered<=max_depth)))))
     return frames,clouds,poses,before
 
 
-def audit(session,output):
+def audit(session,output,max_depth=4.):
     session,output=Path(session),Path(output)
-    frames,clouds,poses,before=load_views(session)
+    frames,clouds,poses,before=load_views(session,max_depth=max_depth)
     archive=session/'frames.jsonl'
     rows=[];prior=np.eye(4);references=[clouds[0]];tracking=True;tracked=1;corrections=[prior.tolist()]
     for index in range(1,len(frames)):
@@ -55,7 +56,7 @@ def audit(session,output):
         rows.append(row)
     after=hashlib.sha256(archive.read_bytes()).hexdigest()
     if after!=before:raise ValueError('Source archive changed')
-    result={'frames':len(frames),'source_sha256':before,'source_unchanged':True,
+    result={'frames':len(frames),'source_sha256':before,'source_unchanged':True,'max_depth_m':max_depth,
             'baseline_qualified_pairs':sum(r['baseline']['qualified'] for r in rows),
             'multiscale_qualified_pairs':sum(r['multiscale']['qualified'] for r in rows),
             'candidate_reasons':dict(Counter(r['multiscale']['reason'] for r in rows)),
@@ -70,5 +71,6 @@ def audit(session,output):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('session');parser.add_argument('output')
-    args=parser.parse_args();report=audit(args.session,args.output)
+    parser.add_argument('--max-depth',type=float,default=4.)
+    args=parser.parse_args();report=audit(args.session,args.output,max_depth=args.max_depth)
     print(json.dumps({key:value for key,value in report.items() if key not in ('rows','corrections_for_qualified_prefix')},ensure_ascii=False,indent=2))

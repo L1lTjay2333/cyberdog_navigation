@@ -1,6 +1,7 @@
 <!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>离线数据处理与灰模</title>
 <style>body{margin:24px;background:#101923;color:#dfebf4;font:16px system-ui}h1{font-size:27px}button,select,a{font:inherit}button,select{padding:10px;margin:5px;background:#213c50;color:inherit;border:1px solid #618198;border-radius:7px}button:disabled{opacity:.4}a{color:#80d1ff;margin:8px;display:inline-block}#status,#metrics{padding:12px;background:#1c2c3a;margin:12px 0;white-space:pre-wrap}#view{height:58vh;min-height:320px;position:relative}canvas{display:block;width:100%;height:100%}.note{color:#afc1cd;line-height:1.7}#error{color:#ffb7a8}</style>
 <h1>离线数据处理与灰模</h1><p class="note">只处理电脑已保存的数据，不连接机器狗。原始数据和每次处理结果均保留。当前沿用采集位姿，尚未完成闭环纠偏与真实尺寸验收。</p>
+<p><a href="http://127.0.0.1:8769/near_range/">查看 10 月 29 日扫描：原范围 / 2 米近景建模对照</a>（已保存结果，需本机对照服务运行）</p>
 <div><select id="session" aria-label="已有采集记录"></select><button id="refresh">刷新记录</button><button id="start">处理所选记录</button><button id="cancel" disabled>取消处理</button></div>
 <div id="status" role="status">正在读取电脑记录…</div><div id="error" role="alert"></div><div id="metrics">尚未加载处理结果</div>
 <div><button data-layer="observed" disabled>完整观测灰模</button><button data-layer="supported" disabled>较高支持灰模</button><button data-layer="points" disabled>处理后点云</button><button id="fit">适合窗口</button><span id="layer-note"></span></div>

@@ -57,5 +57,28 @@ class TSDFTests(unittest.TestCase):
         from reconstruction_tsdf import fuse_depth_records
         with self.assertRaises(ValueError):fuse_depth_records([plane()],max_blocks=1)
 
+    def test_range_limit_excludes_far_surface_without_changing_source(self):
+        from reconstruction_tsdf import fuse_depth_records
+        import copy
+        records=[plane(),plane(2.,2500)]
+        original=copy.deepcopy(records)
+        mesh,_,report=fuse_depth_records(records,max_blocks=256,max_depth=2.)
+        self.assertGreater(len(mesh.triangles),100)
+        np.testing.assert_allclose(np.asarray(mesh.vertices)[:,2],1.,atol=.025)
+        self.assertEqual(report['outside_depth_limit_pixels'],4800)
+        self.assertEqual(records,original)
+
+    def test_all_far_frames_return_empty_not_clamped_surface(self):
+        from reconstruction_tsdf import fuse_depth_records
+        mesh,_,report=fuse_depth_records([plane(depth_mm=2500)],max_blocks=256,max_depth=2.)
+        self.assertEqual(len(mesh.triangles),0)
+        self.assertEqual(report['active_blocks'],0)
+
+    def test_invalid_depth_limit_is_rejected(self):
+        from reconstruction_tsdf import fuse_depth_records
+        for value in (float('nan'),float('inf'),0.,4.1):
+            with self.subTest(value=value),self.assertRaises(ValueError):
+                fuse_depth_records([plane()],max_depth=value)
+
 
 if __name__=='__main__':unittest.main()

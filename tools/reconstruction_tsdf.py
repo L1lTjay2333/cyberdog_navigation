@@ -11,11 +11,12 @@ from reconstruction_mesh import depth_and_camera
 from reconstruction_postprocess import filter_depth
 
 
-def fuse_depth_records(records,voxel=.02,max_blocks=4000):
+def fuse_depth_records(records,voxel=.02,max_blocks=4000,max_depth=4.):
     records=list(records)
     if not 1<=len(records)<=900:raise ValueError('Expected 1 to 900 depth records')
     if not np.isfinite(voxel) or not .01<=voxel<=.05:raise ValueError('Voxel must be 1 to 5 cm')
     if type(max_blocks) is not int or not 1<=max_blocks<=8000:raise ValueError('Invalid block limit')
+    if not np.isfinite(max_depth) or not .3<=max_depth<=4.:raise ValueError('Depth limit must be 0.3 to 4 m')
     previous=0.;frame=None;anchor=None
     for record in records:
         t,_=checked_pose(record)
@@ -31,17 +32,20 @@ def fuse_depth_records(records,voxel=.02,max_blocks=4000):
     active=set();rows=[]
     for index,record in enumerate(records):
         depth,intrinsic,extrinsic=depth_and_camera(record)
+        outside=int((depth>max_depth).sum())
+        depth[depth>max_depth]=0.
         filtered,stats=filter_depth(depth)
+        stats['outside_depth_limit_pixels']=outside
         if not stats['retained_pixels']:
             rows.append(dict(stats,frame=index+1,active_blocks=len(active)))
             continue
         image=o3d.t.geometry.Image(o3d.core.Tensor(filtered.astype(np.float32)))
         k=o3d.core.Tensor(np.array(intrinsic.intrinsic_matrix),dtype=o3d.core.float64)
         e=o3d.core.Tensor(extrinsic,dtype=o3d.core.float64)
-        coordinates=volume.compute_unique_block_coordinates(image,k,e,1.,4.,4.)
+        coordinates=volume.compute_unique_block_coordinates(image,k,e,1.,max_depth,4.)
         additions=set(map(tuple,coordinates.numpy().tolist()))
         if len(active|additions)>max_blocks:raise ValueError('Offline TSDF block limit reached; no blocks silently dropped')
-        volume.integrate(coordinates,image,k,e,1.,4.,4.)
+        volume.integrate(coordinates,image,k,e,1.,max_depth,4.)
         active.update(additions)
         rows.append(dict(stats,frame=index+1,active_blocks=len(active)))
     meshes=[]
@@ -60,6 +64,7 @@ def fuse_depth_records(records,voxel=.02,max_blocks=4000):
     report={'frames':len(records),'method':'Open3D Tensor VoxelBlockGrid projective TSDF',
             'open3d':o3d.__version__,'device':'CPU:0','frame':frame[0],
             'voxel_m':voxel,'truncation_m':voxel*4,'active_blocks':len(active),'block_limit':max_blocks,
+            'max_depth_m':max_depth,'outside_depth_limit_pixels':sum(r['outside_depth_limit_pixels'] for r in rows),
             'all_observations':{'weight_threshold':.5,'vertices':len(meshes[0].vertices),'triangles':len(meshes[0].triangles)},
             'higher_support':{'weight_threshold':2.5,'vertices':len(meshes[1].vertices),'triangles':len(meshes[1].triangles)},
             'depth_spatial_outliers_removed':sum(r['isolated_removed'] for r in rows),

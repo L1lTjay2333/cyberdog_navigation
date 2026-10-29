@@ -22,11 +22,16 @@ def preview_mesh(path,output,name):
     mesh=o3d.io.read_triangle_mesh(str(path))
     faces=np.asarray(mesh.triangles);vertices=np.asarray(mesh.vertices)
     if not len(faces):return None
-    selected=faces[np.linspace(0,len(faces)-1,min(150000,len(faces))).astype(int)]
-    positions=vertices[selected].astype('<f4').reshape(-1,3)
+    # Dropping individual faces creates artificial holes. Simplify only the
+    # display mesh; the full exported PLY and source geometry remain untouched.
+    preview=mesh.simplify_quadric_decimation(150000) if len(faces)>150000 else mesh
+    selected=np.asarray(preview.triangles)
+    if len(selected)>150000:raise ValueError('Preview simplification exceeded face budget')
+    positions=np.asarray(preview.vertices)[selected].astype('<f4').reshape(-1,3)
     if not np.isfinite(positions).all():raise ValueError('Non-finite preview geometry')
     positions.tofile(output/(name+'.bin'))
-    return {'file':name+'.bin','kind':'mesh','displayed_triangles':len(selected),'full_triangles':len(faces),
+    return {'file':name+'.bin','kind':'mesh','preview_method':'quadric_decimation' if len(faces)>150000 else 'full_mesh',
+            'displayed_triangles':len(selected),'full_triangles':len(faces),
             'position_count':len(positions),'minimum':vertices.min(axis=0).tolist(),'maximum':vertices.max(axis=0).tolist()}
 
 

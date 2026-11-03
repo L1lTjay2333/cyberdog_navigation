@@ -1,5 +1,7 @@
 """Python 3.6 compatible, passive stock ROS map/status monitor over stdout."""
 import json
+import base64
+import zlib
 import math
 import time
 import threading
@@ -11,15 +13,17 @@ from tf2_ros import Buffer, TransformListener
 from protocol.msg import AlgoTaskStatus
 from sensor_msgs.msg import PointCloud2
 from tf2_msgs.msg import TFMessage
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped,TransformStamped
 from scan_distance import report_scan
 from depth_geometry import depth_xyz
+from depth_preview import depth_preview
 from cloud_geometry import FootprintObservation
 
 NS = '/mi_desktop_48_b0_2d_7b_0b_4a'
 rclpy.init(args=[])
 node = rclpy.create_node('flat_navigation_readonly_map', enable_rosout=False, start_parameter_services=False)
 tf_buffer = Buffer()
+mapping_pose_buffer = Buffer()
 tf_listener = TransformListener(tf_buffer,node)
 state = {'map': None, 'pose': None, 'task': None, 'odom': None, 'cloud': None, 'tf': {}, 'started_unix': time.time()}
 footprint_observation=FootprintObservation()
@@ -57,6 +61,7 @@ def map_receive(msg):
 
 def task_receive(msg):
     if msg.task_status==5 and (state.get('task') or {}).get('status')!=5:
+        mapping_pose_buffer.clear()
         footprint_observation.poses=[]
         maps_by_frame.pop('map',None)
     state['task'] = {'status': msg.task_status, 'sub_status': msg.task_sub_status, 'received_unix': time.time()}
@@ -96,7 +101,7 @@ def process_cloud(msg):
         if status in (5,8,1) and stamp>0 and abs(now-stamp)<2:
             # TF often arrives a few milliseconds after the camera frame.
             # Retry the exact acquisition timestamp after subsequent ROS spins.
-            pending_cloud=(msg.header,cloud,points)
+            if pending_cloud is None:pending_cloud=(msg.header,cloud,points,None)
         cloud['sampled_finite_points']=len(points)
         cloud['units']='ROS_SOURCE_METERS_SCALE_REQUIRES_FIELD_CHECK'
     except Exception as exc:cloud['error']=str(exc)
@@ -112,7 +117,7 @@ def depth_receive(msg):
 
 def process_depth(msg):
     global last_cloud_decode,pending_cloud
-    if time.monotonic()-last_native_cloud<2 or time.monotonic()-last_cloud_decode<.5:return
+    if time.monotonic()-last_cloud_decode<.5:return
     last_cloud_decode=time.monotonic()
     stamp=msg.header.stamp.sec+msg.header.stamp.nanosec/1e9
     cloud={'points':0,'frame':msg.header.frame_id,'source_frame':msg.header.frame_id,
@@ -122,37 +127,44 @@ def process_depth(msg):
     try:
         if abs(time.time()-stamp)>1 or stamp<=0:raise ValueError('Depth data stale or clock mismatch')
         if depth_info is None:raise ValueError('Waiting for depth CameraInfo')
-        info_stamp=depth_info.header.stamp.sec+depth_info.header.stamp.nanosec/1e9
-        if abs(info_stamp-stamp)>.2:raise ValueError('Depth calibration timestamp mismatch')
-        points,total=depth_xyz(msg,depth_info,stride=16)
+        # CameraInfo is calibration, not a pose sample. Stock may publish it
+        # less frequently; depth_xyz validates dimensions, optical frame and P.
+        # Image freshness and timestamped world TF remain mandatory separately.
+        info=depth_info
+        points,total=depth_xyz(msg,info,stride=8)
+        points=[p for p in points if .15<=p[2]<=4.]
         cloud.update(points_xyz=points,points=len(points),sampled_finite_points=len(points),
                      sampled_pixels=total,valid_depth_fraction=len(points)/float(total) if total else 0)
-        if (state.get('task') or {}).get('status') in (5,8,1):pending_cloud=(msg.header,cloud,points)
+        if (state.get('task') or {}).get('status') in (5,8,1) and pending_cloud is None:
+            pending_cloud=(msg.header,cloud,points,(msg,info))
     except Exception as exc:cloud['error']=str(exc)
     state['cloud']=cloud
 
 def display_transform(target,source,stamp):
     if target=='laser_odom' and (state.get('task') or {}).get('status')==5:
-        # Stock map_build_node publishes the same local_pose as dog_pose in
-        # laser_odom and TF in vodom. Verify their agreement before using this
-        # documented alias; never do this for localization/navigation.
-        raw=state.get('raw_pose') or {}
-        seconds=stamp.sec+stamp.nanosec/1e9
-        if raw.get('frame')!='laser_odom' or abs(seconds-raw.get('received_unix',0))>.35:
-            raise ValueError('Mapping pose timestamp not ready')
-        base=tf_buffer.lookup_transform('vodom','base_link',rclpy.time.Time.from_msg(stamp)).transform
-        p,q=base.translation,base.rotation
-        yaw=math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
-        turn=abs(math.atan2(math.sin(yaw-raw['yaw']),math.cos(yaw-raw['yaw'])))
-        if math.hypot(p.x-raw['x'],p.y-raw['y'])>.05 or turn>.05:
-            raise ValueError('Mapping TF and dog_pose disagree')
-        target='vodom'
+        # Mapping PoseStamped is already expressed in laser_odom. Interpolate
+        # its full 6-DoF pose at sensor acquisition time, independent of vodom TF.
+        # Use the actual timestamped laser_odom PoseStamped history. The stock
+        # vodom->base_link TF may stop publishing during mapping; no alias needed.
+        base=mapping_pose_buffer.lookup_transform('laser_odom','base_link',rclpy.time.Time.from_msg(stamp)).transform
+        local=tf_buffer.lookup_transform('base_link',source,rclpy.time.Time.from_msg(stamp)).transform
+        a,b=base.rotation,local.rotation
+        out=TransformStamped();out.header.frame_id=target;out.header.stamp=stamp;out.child_frame_id=source
+        p=transform_xyz([[local.translation.x,local.translation.y,local.translation.z]],
+                        [base.translation.x,base.translation.y,base.translation.z],[a.x,a.y,a.z,a.w])[0]
+        out.transform.translation.x,out.transform.translation.y,out.transform.translation.z=p
+        q=out.transform.rotation
+        q.x=a.w*b.x+a.x*b.w+a.y*b.z-a.z*b.y
+        q.y=a.w*b.y-a.x*b.z+a.y*b.w+a.z*b.x
+        q.z=a.w*b.z+a.x*b.y-a.y*b.x+a.z*b.w
+        q.w=a.w*b.w-a.x*b.x-a.y*b.y-a.z*b.z
+        return out
     return tf_buffer.lookup_transform(target,source,rclpy.time.Time.from_msg(stamp))
 
 def align_pending_cloud():
     global pending_cloud
     if pending_cloud is None:return
-    header,cloud,points=pending_cloud
+    header,cloud,points,depth_pair=pending_cloud
     age=time.time()-cloud['received_unix']
     if age<.15:return
     if abs(time.time()-cloud['stamp'])>2 or (state.get('task') or {}).get('status') not in (5,8,1):
@@ -163,13 +175,22 @@ def align_pending_cloud():
         p,q=t.transform.translation,t.transform.rotation
         cloud['points_xyz']=transform_xyz(points,[p.x,p.y,p.z],[q.x,q.y,q.z,q.w])
         cloud['frame']=target;cloud['aligned']=True
+        state['cloud']=cloud
+        if depth_pair is not None:
+            image,info=depth_pair
+            state['archive_depth']=dict(event='depth',stamp=cloud['stamp'],frame=target,
+                source_frame=header.frame_id,width=image.width,height=image.height,step=image.step,
+                encoding=image.encoding,bigendian=bool(image.is_bigendian),
+                intrinsics=[float(info.p[i]) for i in (0,5,2,6)],
+                translation=[p.x,p.y,p.z],quaternion=[q.x,q.y,q.z,q.w],
+                depth_zlib_b64=base64.b64encode(zlib.compress(bytes(image.data),1)).decode('ascii'))
         cloud.pop('alignment_error',None)
         pending_cloud=None
     except Exception as exc:cloud['alignment_error']=str(exc)[:160]
 
 def pose_receive(msg):
     p, q = msg.pose.position, msg.pose.orientation
-    values = (p.x, p.y, q.x, q.y, q.z, q.w)
+    values = (p.x, p.y, p.z, q.x, q.y, q.z, q.w)
     norm = sum(v*v for v in (q.x,q.y,q.z,q.w))
     if not all(math.isfinite(v) for v in values) or norm < 1e-12:
         state['raw_pose'] = None
@@ -180,6 +201,12 @@ def pose_receive(msg):
                      'frame': msg.header.frame_id, 'received_unix': stamp,
                      'source': NS+'/dog_pose'}
     if (state.get('task') or {}).get('status')==5:
+        if msg.header.frame_id=='laser_odom' and stamp>0:
+            t=TransformStamped();t.header=msg.header;t.child_frame_id='base_link'
+            t.transform.translation.x=p.x;t.transform.translation.y=p.y;t.transform.translation.z=p.z
+            t.transform.rotation.x=q.x/math.sqrt(norm);t.transform.rotation.y=q.y/math.sqrt(norm)
+            t.transform.rotation.z=q.z/math.sqrt(norm);t.transform.rotation.w=q.w/math.sqrt(norm)
+            mapping_pose_buffer.set_transform(t,'stock_dog_pose')
         footprint_observation.observe(state['raw_pose'])
 
 def select_display_pose(status,grid,raw,previous,now):
@@ -266,10 +293,15 @@ def display_worker():
             # Coalesce frames. Projection/JSON must not hold up ROS TF/status callbacks.
             cloud=latest_cloud;latest_cloud=None
             depth=latest_depth;latest_depth=None
-            if cloud is not None:process_cloud(cloud)
+            if depth is not None:
+                try:state['depth_preview']=depth_preview(depth,time.time())
+                except ValueError as error:state['depth_preview']={'error':str(error),'received_unix':time.time()}
+            if depth is not None and (state.get('task') or {}).get('status') in (5,8,1):process_depth(depth)
+            elif cloud is not None:process_cloud(cloud)
             elif depth is not None:process_depth(depth)
             align_pending_cloud()
             report=dict(state);report['tf']=dict(state['tf'])
+            state.pop('archive_depth',None)
             status=(report.get('task') or {}).get('status')
             if latest_scan is not None:report['laser_overlay']=scan_overlay(latest_scan,status)
             grid=select_display_grid(maps_by_frame,status)

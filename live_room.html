@@ -1,0 +1,32 @@
+<!doctype html><html lang="zh"><meta charset="utf-8"><title>本轮房间扫描 · 灰模与点云</title>
+<style>body{margin:0;background:#111a24;color:#e9f1fa;font:15px system-ui}header{padding:16px 24px}h1{font-size:22px;margin:0 0 8px}button,a{background:#253c50;color:#edf6ff;border:1px solid #4b6378;border-radius:7px;padding:9px 14px;cursor:pointer;display:inline-block;text-decoration:none;margin:4px}button.active{background:#387c78}#status,#note{color:#b3c7da;margin:8px 0;max-width:1100px;line-height:1.6}#view{height:calc(100vh - 240px);min-height:420px;touch-action:none}canvas{display:block;width:100%;height:100%}</style>
+<script type="importmap">{"imports":{"three":"/vendor/three.module.js"}}</script>
+<header><h1>本轮房间扫描 · 离线处理结果</h1><div><button data-mode="gray">灰色表面</button><button data-mode="processed">处理后点云</button><button data-mode="raw">原始累计点云</button><button id="fit">适应画面</button><button id="top">俯视</button><a href="/gray.ply" download>下载灰模PLY</a><a href="/processed.ply" download>下载处理后点云</a><a href="http://127.0.0.1:8765/">返回遥控页面</a></div><p id="status">正在读取处理结果…</p><p id="note">鼠标左键旋转、右键平移、滚轮缩放；触屏双指平移缩放。仅连接有观测支持的表面，缺失区域保留孔洞。处理不会自动消除原厂定位漂移。</p></header><div id="view"></div>
+<script type="module">
+import * as THREE from 'three';import {OrbitControls} from '/vendor/OrbitControls.js';
+const host=document.querySelector('#view'),status=document.querySelector('#status');
+const scene=new THREE.Scene();scene.background=new THREE.Color('#111a24');scene.up.set(0,0,1);
+const camera=new THREE.PerspectiveCamera(50,1,.02,200);camera.up.set(0,0,1);
+const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));host.append(renderer.domElement);
+const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.screenSpacePanning=true;
+scene.add(new THREE.HemisphereLight(0xffffff,0x536272,2.3));const light=new THREE.DirectionalLight(0xffffff,2);light.position.set(3,-4,8);scene.add(light);
+const grid=new THREE.GridHelper(30,60,0x466078,0x253749);grid.rotation.x=Math.PI/2;scene.add(grid);scene.add(new THREE.AxesHelper(1));
+let object,report,mode='gray',bounds,loadId=0;
+function fit(top=false){if(!bounds)return;const c=bounds.getCenter(new THREE.Vector3()),d=Math.max(1,bounds.getSize(new THREE.Vector3()).length());controls.target.copy(c);camera.position.copy(c).add(top?new THREE.Vector3(0,0,d*1.1):new THREE.Vector3(d*.65,-d*.85,d*.7));camera.near=.02;camera.far=Math.max(200,d*10);camera.updateProjectionMatrix();controls.update();}
+async function show(next){const id=++loadId;status.textContent='正在加载'+(next==='gray'?'灰模':'点云')+'…';try{
+ const response=await fetch('/'+next+'.bin');if(!response.ok)throw Error('尚无处理结果');const data=new Float32Array(await response.arrayBuffer());if(id!==loadId)return;
+ if(object){scene.remove(object);object.geometry.dispose();object.material.dispose();}
+ const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(data,3));
+ object=next==='gray'?new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0xb8b9ba,roughness:1,side:THREE.DoubleSide,flatShading:true})):new THREE.Points(geo,new THREE.PointsMaterial({color:next==='raw'?0x63badd:0xd2d6da,size:.025}));
+ if(next==='gray')geo.computeVertexNormals();scene.add(object);geo.computeBoundingBox();bounds=geo.boundingBox;mode=next;
+ document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));fit();
+ status.textContent=`${report.frames} 帧 · ${(report.duration_s/60).toFixed(1)} 分钟 · 原始 ${report.raw_points.toLocaleString()} 点 → 处理后 ${report.processed_points.toLocaleString()} 点 · 灰模 ${report.triangles.toLocaleString()} 三角面 · ${report.frame}。局部表面预览，仍有缺测和可能的拼接重影；低支持点保留在原始对照中。`;
+ window.roomProbe={mode,positions:data.length/3,report};
+ if(next==='replayed')status.textContent=`局部配准离线回放 · ${data.length/3} 个体素 · 与原始点云采用相同的5厘米体素平均 · 整圈闭环及走廊平行度仍待验证`;
+ }catch(e){status.textContent='读取失败：'+e.message;}}
+const replayButton=document.createElement('button');replayButton.dataset.mode='replayed';replayButton.textContent='局部配准回放';document.querySelector('[data-mode="raw"]').after(replayButton);
+document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>show(b.dataset.mode));document.querySelector('#fit').onclick=()=>fit();document.querySelector('#top').onclick=()=>fit(true);
+new ResizeObserver(()=>{renderer.setSize(host.clientWidth,host.clientHeight);camera.aspect=host.clientWidth/host.clientHeight;camera.updateProjectionMatrix();}).observe(host);
+function tick(){requestAnimationFrame(tick);controls.update();renderer.render(scene,camera);}tick();
+try{const r=await fetch('/result.json');if(!r.ok)throw Error('离线处理尚未完成，请稍后刷新');report=await r.json();await show('gray');}catch(e){status.textContent=e.message;}
+</script></html>

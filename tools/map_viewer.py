@@ -23,6 +23,8 @@ from stale_task_reset import reset_stale_navigation
 import math
 
 ROOT = Path(__file__).resolve().parents[1]
+from live_cloud_archive import LiveCloudArchive
+cloud_archive=LiveCloudArchive(ROOT/'evidence/live_cloud_maps')
 OFFLINE = False
 state = {'map': None, 'connection': 'connecting'}
 lock = threading.Lock()
@@ -74,6 +76,11 @@ def decision_report(snapshot,transport):
     return result
 
 def read_robot_once():
+    try:
+        from local_cloud_registration import LocalRegistration
+        registration=LocalRegistration()
+    except ImportError:
+        registration=None
     global state,readonly_process
     command = ['ssh', '-F', str(ROOT/'config/readonly_ssh_config'), 'cyberdog-current-nx',
                "source /etc/mi/ros2_env.conf; python3 -u -c \"import sys;exec(sys.stdin.read())\""]
@@ -95,7 +102,7 @@ def read_robot_once():
         # Embed reviewed, ROS-independent teammate helpers; do not install robot files.
         scope=json.loads((ROOT/'config/scope.json').read_text())
         setup='import sys,types\nSAVED_MAP_NAME='+repr(scope.get('computer_map_name'))+'\nSCAN_TOPIC='+repr(scope.get('scan_topic','/scan'))+'\n'
-        for name in ('cloud_geometry','obstacle_distance_probe','scan_distance','depth_geometry','saved_grid'):
+        for name in ('cloud_geometry','obstacle_distance_probe','scan_distance','depth_geometry','depth_preview','saved_grid'):
             content=(ROOT/('tools/'+name+'.py')).read_text(encoding='utf-8')
             setup+='mod=types.ModuleType('+repr(name)+');sys.modules['+repr(name)+']=mod\n'
             setup+='exec('+repr(content)+',mod.__dict__)\n'
@@ -120,6 +127,14 @@ def read_robot_once():
             item['connection'] = 'connected'
             received[0]=time.monotonic()
             item['local_received_unix'] = time.time()
+            name=mapping.report().get('map_name') if (item.get('task') or {}).get('status')==5 else scope.get('computer_map_name')
+            cloud=item.get('cloud') or {}
+            if registration is not None and 0<=item['emitted_unix']-cloud.get('stamp',0)<2:
+                registration.apply(cloud,name)
+            try:cloud_archive.add(item,name)
+            except (OSError,ValueError) as exc:cloud_archive.error=str(exc)
+            item.pop('archive_depth',None)
+            item['cloud_archive']={'points':len(cloud_archive.voxels),'key':cloud_archive.key,'error':cloud_archive.error}
             item['mapping_sensor']=scope.get('mapping_sensor','lidar')
             item['sensor_consistency']=sensor_consistency(item,time.time())
             if item.get('map') and item.get('pose'):
@@ -415,9 +430,14 @@ class Handler(BaseHTTPRequestHandler):
                 report['map']={k:v for k,v in report['map'].items() if k!='data'}
             data = json.dumps(report).encode('utf-8')
             content = 'application/json; charset=utf-8'
+        elif self.path == '/cloud/saved':
+            data=json.dumps(cloud_archive.read()).encode('utf-8');content='application/json; charset=utf-8'
         elif self.path in {'/', '/index.html'}:
             data = (ROOT/'navigation.html').read_bytes()
             content = 'text/html; charset=utf-8'
+        elif self.path == '/depth_live.js':
+            data=(ROOT/'depth_live.js').read_bytes()
+            content='text/javascript; charset=utf-8'
         elif self.path == '/cloud_view.js':
             data=(ROOT/'cloud_view.js').read_bytes()
             content='text/javascript; charset=utf-8'

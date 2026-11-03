@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
-$taskPython = 'C:\Users\13302\AppData\Roaming\uv\python\cpython-3.11-windows-x86_64-none\python.exe'
+$taskPython = Join-Path $PSScriptRoot '..\..\tools\reconstruction_runtime\.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $taskPython)) { $taskPython = (Get-Command python -ErrorAction Stop).Source }
 try {
     $null = Invoke-RestMethod 'http://127.0.0.1:8765/state' -TimeoutSec 2

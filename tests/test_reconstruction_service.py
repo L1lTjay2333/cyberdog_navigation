@@ -11,6 +11,13 @@ import reconstruction_server as server
 
 
 class ServiceTests(unittest.TestCase):
+    def test_transport_timeout_explains_truncated_json(self):
+        error=json.JSONDecodeError('Unterminated string','{"data":"',8)
+        message=server.capture_failure('Timeout, server 192.168.1.123 not responding.',error)
+        self.assertIn('SSH传输中断',message)
+        self.assertIn('保留',message)
+        self.assertNotIn('Unterminated',message)
+
     def test_network_denial_is_not_reported_as_generic_broken_pipe(self):
         explain=getattr(server,'capture_failure',None)
         self.assertIsNotNone(explain,'SSH diagnostics must preserve the cause')
@@ -87,7 +94,7 @@ class ServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);folder=root/'evidence/reconstruction/test-session';folder.mkdir(parents=True)
             old=server.Laboratory();old.session=folder.name
-            old.model.add(frame(),stride=1);old.model.add(frame(2.),stride=1)
+            for stamp in range(1,6):old.model.add(frame(float(stamp)),stride=1)
             (folder/'model.ply').write_bytes(old.ply())
             (folder/'summary.json').write_text(json.dumps(old.report(False)))
             (folder/'frame_01.json').write_text(json.dumps(frame()))

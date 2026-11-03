@@ -96,6 +96,7 @@ class ManualBridge:
             scope=json.loads((self.root/'config/scope.json').read_text())
             source+='SENSOR_MODE='+repr(scope.get('manual_sensor_mode','lidar'))+'\n'
             source+='AUXILIARY_TASK='+repr(self.auxiliary_task)+'\n'
+            source+='MANUAL_DISTANCE_OVERRIDE='+repr(scope.get('manual_distance_override') is True)+'\n'
             source+=(self.root/'tools/camera_handoff.py').read_text(encoding='utf-8')+'\n'
             source+='import sys,types\n'
             for name in ('cloud_geometry','depth_geometry','depth_corridor','front_cloud'):

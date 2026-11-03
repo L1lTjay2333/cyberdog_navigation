@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 
 ROOT=Path(__file__).resolve().parents[1]
 IDENTIFIER=re.compile(r'[0-9]{8}_[0-9]{6}_[0-9]{6}')
-FILES={'observed.bin':'observed.bin','supported.bin':'supported.bin','points.bin':'points.bin',
+FILES={'result.json':'result.json','color_alignment.json':'color_alignment.json','reprojection.json':'reprojection.json','aligned.bin':'aligned.bin','mls.bin':'mls.bin','aligned.ply':'fusion/aligned_gray.ply','mls.ply':'mls.ply','alignment.json':'alignment.json','observed.bin':'observed.bin','supported.bin':'supported.bin','points.bin':'points.bin',
        'observed.ply':'fusion/observed_gray.ply','supported.ply':'fusion/supported_gray.ply',
        'points.ply':'processed/points_processed.ply','excluded.ply':'processed/points_excluded.ply',
        'processing.json':'processed/processing_report.json','fusion.json':'fusion/fusion_report.json'}
@@ -47,7 +47,7 @@ class Workbench:
                 if not IDENTIFIER.fullmatch(folder.name) or folder.is_symlink() or folder.resolve().parent!=parent:continue
                 archive=folder/'frames.jsonl'
                 if archive.is_symlink() or not 0<archive.stat().st_size<=256*1024*1024:continue
-                summary=read_json(folder/'summary.json');frames=summary.get('accepted_frames')
+                summary=read_json(folder/'summary.json');frames=summary.get('received_frames',summary.get('accepted_frames'))
                 info=summary.get('raw_archive') or {}
                 if type(frames) is not int or not 2<=frames<=900 or info.get('frames')!=frames or info.get('complete') is not True:continue
                 rows.append({'id':folder.name,'frames':frames,'points':summary.get('stable_points',0),
@@ -55,7 +55,8 @@ class Workbench:
             except (OSError,ValueError):continue
         return rows
 
-    def start(self,session_id):
+    def start(self,session_id,mode='standard',first_frame=1):
+        if mode not in ('standard','local','color') or type(first_frame) is not int or not 1<=first_frame<=891:raise ValueError('无效处理模式或起始帧')
         if not isinstance(session_id,str) or not IDENTIFIER.fullmatch(session_id):raise ValueError('请选择有效采集记录')
         with self.lock:
             if self.process is not None and self.process.poll() is None:raise ValueError('已有离线任务运行，请等待或取消')
@@ -64,12 +65,12 @@ class Workbench:
             self.folder=self.root/'evidence/offline_runs'/self.run_id
             self.folder.mkdir(parents=True,exist_ok=False)
             self.cancelled=False;self.started=time.monotonic()
-            (self.folder/'job.json').write_text(json.dumps({'session':session_id,'run':self.run_id}),encoding='utf-8')
+            (self.folder/'job.json').write_text(json.dumps({'session':session_id,'run':self.run_id,'mode':mode,'first_frame':first_frame}),encoding='utf-8')
             (self.folder/'progress.json').write_text(json.dumps({'phase':'queued','message':'正在启动电脑离线处理'}),encoding='utf-8')
             self.log=(self.folder/'worker.log').open('w',encoding='utf-8')
             try:
                 self.process=subprocess.Popen([sys.executable,'-u',str(self.root/'tools/reconstruction_offline_worker.py'),
-                    str(self.root/'evidence/reconstruction'/session_id),str(self.folder)],
+                    str(self.root/'evidence/reconstruction'/session_id),str(self.folder),'--mode',mode,'--first-frame',str(first_frame)],
                     stdout=self.log,stderr=subprocess.STDOUT,cwd=str(self.root))
                 self.log.close();self.log=None
             except OSError:
@@ -160,7 +161,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get('Content-Type')!='application/json' or not 0<length<=256:raise ValueError('无效请求')
             data=json.loads(self.rfile.read(length))
             if not isinstance(data,dict):raise ValueError('无效请求')
-            if self.path=='/api/start':result=BENCH.start(data.get('session'))
+            if self.path=='/api/start':result=BENCH.start(data.get('session'),data.get('mode','standard'),data.get('first_frame',1))
             elif self.path=='/api/cancel':BENCH.cancel();result={}
             else:raise ValueError('未知离线操作')
             self.send_json(dict(ok=True,**result))

@@ -1,4 +1,6 @@
 'use strict';
+const scanConsole=window.SCAN_CONSOLE===true;
+if(scanConsole){document.body.classList.add('scan-console');const style=document.createElement('style');style.textContent='.scan-console{margin:0;padding:10px;font:14px system-ui}.scan-console h1,.scan-console>p,.scan-console h2{display:none}.scan-console button{padding:12px;font:15px system-ui}.scan-console #pad{gap:7px;margin:10px 0}.scan-console pre{font-size:13px}.scan-console #feedback{max-height:180px;overflow:auto}';document.head.append(style);}
 const manualPanel=document.getElementById('manual-panel');
 const manualElement=id=>document.getElementById((manualPanel?'control-':'')+id);
 const manualButtons=()=> (manualPanel||document).querySelectorAll('[data-direction]');
@@ -18,7 +20,18 @@ function freshestBattery(...samples){
 }
 const keyDirections={KeyW:'forward',KeyS:'backward',KeyA:'left',KeyD:'right',KeyJ:'shift_left',KeyK:'shift_right'};
 const owner=crypto.randomUUID();let sequence=0;
-async function manualPost(path,body){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,owner,sequence:++sequence})});const j=await r.json();if(!j.ok)throw Error(j.message);return j;}
+const controlWorker=scanConsole?new Worker('/manual_transport.js'):null;
+let workerRequest=0;const workerCalls=new Map();
+if(controlWorker)controlWorker.onmessage=({data})=>{
+ if(data.type==='expired'){localControlError=data.error;release();return;}
+ const call=workerCalls.get(data.id);if(!call)return;workerCalls.delete(data.id);
+ if(data.error)call.reject(Error(data.error));else call.resolve(data.result);
+};
+async function manualPost(path,body){
+ if(controlWorker)return new Promise((resolve,reject)=>{const id=++workerRequest;workerCalls.set(id,{resolve,reject});controlWorker.postMessage({id,path,body:{...body,owner}});});
+ const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,owner,sequence:++sequence}),signal:AbortSignal.timeout(path==='/manual/connect'?45000:1000)});
+ const j=await r.json();if(!j.ok)throw Error(j.message||j.error);return j;
+}
 function release(){pressedKeys.clear();held='stop';heldKey=null;heldAxes=null;token++;if(!live)return;manualPost('/manual/stop',{}).catch(e=>{localControlError=e.message;msg.textContent='停车请求未确认：'+e.message+'；必要时使用物理急停';});}
 function setAxes(x,y){
  const norm=Math.max(1,Math.hypot(x,y));x/=norm;y/=norm;
@@ -55,7 +68,7 @@ const batteryLabel=document.createElement('p');batteryLabel.textContent='电量�
 batteryLabel.id=(manualPanel?'control-':'')+'battery';
 keyboardCapture.insertAdjacentElement('afterend',batteryLabel);
 const postureButton=document.createElement('button');postureButton.textContent='空格：起立 / 趴下';
-postureButton.className='wide';batteryLabel.insertAdjacentElement('afterend',postureButton);
+postureButton.hidden=scanConsole;postureButton.className='wide';batteryLabel.insertAdjacentElement('afterend',postureButton);
 postureButton.onclick=()=>{release();if(live)manualPost('/manual/posture',{}).catch(e=>{localControlError=e.message;});else localControlError='请先连接本页遥控';};
 const controlNote=(manualPanel||document).querySelector?.('p.note');
 if(controlNote)controlNote.textContent='W/S 前后；A/D 原地左旋/右旋；J/K 单独左移/右移。W+A/W+D 向左前/右前行走，S+A/S+D 向左后/右后倒车；摇杆横推旋转、斜推弧线行走。松开停车；空格起立/趴下，Esc 紧急停车。';
@@ -70,7 +83,7 @@ joystick.onpointerdown=e=>{if(!live)return;e.preventDefault();release();stickDow
 joystick.onpointermove=e=>{if(stickDown)moveStick(e);};
 joystick.onpointerup=joystick.onpointercancel=joystick.onlostpointercapture=()=>{stickDown=false;drawStick();release();};drawStick();
 keyboardCapture.addEventListener('focus',()=>{keyboardCapture.placeholder='键盘焦点已就绪：按住移动，松开停车';});
-keyboardCapture.addEventListener('blur',()=>{keyboardCapture.placeholder='点击启用键盘：WASD 转向行走 · J/K 横移';release();});
+keyboardCapture.addEventListener('blur',()=>{keyboardCapture.placeholder='点击启用键盘：WASD 转向行走 · J/K 横移';if(!document.hasFocus())release();});
 // Mapping can request a connection, but never steal another page or send motion.
 window.connectMappingControl=async()=>{
  if(anotherOwner)throw Error('其他网页持有遥控，请点击本页接管按钮');
@@ -128,6 +141,7 @@ window.addEventListener('keydown',e=>{
  if(e.code==='Escape'){e.preventDefault();release();return;}
  if(e.code==='Space'||e.key===' '){
   e.preventDefault();if(e.repeat)return;release();
+  if(scanConsole){keyboardFeedback='扫描期间空格仅停车';return;}
   keyboardFeedback='已收到空格：起立 / 趴下';
   localControlError='';
   if(live)manualPost('/manual/posture',{}).catch(e=>{localControlError=e.message;});
@@ -147,11 +161,11 @@ window.addEventListener('keydown',e=>{
 },true);
 window.addEventListener('keyup',e=>{const code=directionCode(e);if(keyDirections[code]){e.preventDefault();keyboardFeedback='已松开 '+code.replace('Key','');pressedKeys.delete(code);heldKey=pressedKeys.size?Array.from(pressedKeys)[0]:null;updateKeys();}},true);
 window.addEventListener('blur',release);document.addEventListener('visibilitychange',()=>{if(document.hidden)release();});
-window.addEventListener('pagehide',()=>{held='stop';fetch('/manual/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({owner,sequence:++sequence}),keepalive:true}).catch(()=>{});});
-setInterval(async()=>{if(held==='stop'||pending)return;pending=true;const seq=token;try{await manualPost('/manual/control',{direction:held,axes:heldAxes,armed:enabled});}catch(e){localControlError=e.message;msg.textContent=e.message;if(seq===token)release();}finally{pending=false;}},100);
+window.addEventListener('pagehide',()=>{held='stop';fetch('/manual/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({owner,sequence:controlWorker?Date.now()*1000+999:++sequence}),keepalive:true}).catch(()=>{});});
+setInterval(async()=>{if(controlWorker){controlWorker.postMessage({type:'intent',body:held==='stop'?null:{owner,direction:held,axes:heldAxes,armed:enabled}});return;}if(held==='stop'||pending)return;pending=true;const seq=token;try{await manualPost('/manual/control',{direction:held,axes:heldAxes,armed:enabled});}catch(e){localControlError=e.message;msg.textContent=e.message;if(seq===token)release();}finally{pending=false;}},100);
 let manualPolling=false;
 async function manualUpdate(){if(manualPolling)return;manualPolling=true;try{
- const s=await(await fetch('/manual_state?owner='+encodeURIComponent(owner))).json();live=s.connected===true&&s.owns_session!==false;enabled=s.enabled===true;
+ const s=await(await fetch('/manual_state?owner='+encodeURIComponent(owner),{cache:'no-store',signal:AbortSignal.timeout(1500)})).json();live=s.connected===true&&s.owns_session!==false;enabled=s.enabled===true;
  anotherOwner=s.connected===true&&s.owns_session===false;
  directionBlocks=s.direction_blocks||{};
  const battery=freshestBattery(s.battery,typeof latest!=='undefined'?latest?.battery:null),batteryFresh=!!battery;
@@ -185,7 +199,8 @@ async function manualUpdate(){if(manualPolling)return;manualPolling=true;try{
   const waiting='电池已反馈未充电，但原厂运动状态仍为14；等待运动状态自动恢复，不是网页电量缓存。';
   msg.textContent=waiting;feedback.textContent+='\n'+waiting;
  }
- if(Number.isFinite(s.front_stop_clearance_m))feedback.textContent+='\n前沿估算净距：'+(Number.isFinite(s.front_clearance_m)?(s.front_clearance_m*100).toFixed(1)+' 厘米':'无有效距离')+'；锁定阈值：'+(s.front_stop_clearance_m*100).toFixed(0)+' 厘米（基于配置轮廓）\n接近障碍限速后指令：'+JSON.stringify(s.limited_velocity||[0,0,0]);
+ if(s.manual_distance_override)feedback.textContent+='\n人工保护模式：网页障碍距离拦截已解除，方向由操作者判断';
+ if(!s.manual_distance_override&&Number.isFinite(s.front_stop_clearance_m))feedback.textContent+='\n前沿估算净距：'+(Number.isFinite(s.front_clearance_m)?(s.front_clearance_m*100).toFixed(1)+' 厘米':'无有效距离')+'；锁定阈值：'+(s.front_stop_clearance_m*100).toFixed(0)+' 厘米（基于配置轮廓）\n接近障碍限速后指令：'+JSON.stringify(s.limited_velocity||[0,0,0]);
  if(s.sit_message)feedback.textContent+='\n姿态切换：'+s.sit_message;
  }catch(e){live=false;enabled=false;for(const b of manualButtons())b.disabled=true;if(held!=='stop')release();msg.textContent='网页服务连接中断';}finally{manualPolling=false;}}
 manualUpdate();setInterval(manualUpdate,250);

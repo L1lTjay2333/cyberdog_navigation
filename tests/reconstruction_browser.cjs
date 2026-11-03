@@ -15,7 +15,7 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
    return route.continue();
   });
   await page.goto('http://127.0.0.1:8766/',{waitUntil:'networkidle'});
-  await page.waitForFunction(()=>document.getElementById('stats').textContent.includes('有效融合帧'));
+  await page.waitForFunction(()=>document.getElementById('stats').textContent.includes('有效接收帧'));
   const response=await page.request.get('http://127.0.0.1:8766/state');
   const state=await response.json();
   assert(state.stable_points>0,'Live capture must exist before visual verification');

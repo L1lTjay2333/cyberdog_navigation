@@ -21,6 +21,7 @@ NS = '/mi_desktop_48_b0_2d_7b_0b_4a'
 rclpy.init(args=[])
 node = rclpy.create_node('handoff_manual_deadman', enable_rosout=False, start_parameter_services=False)
 health = {'sensor_mode':SENSOR_MODE,'auxiliary_task':AUXILIARY_TASK}
+health['manual_distance_override']=globals().get('MANUAL_DISTANCE_OVERRIDE',False) is True
 depth_info=None
 depth_last=-100.
 tf_buffer=Buffer();tf_listener=TransformListener(tf_buffer,node)

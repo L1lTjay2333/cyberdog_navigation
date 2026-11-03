@@ -8,6 +8,15 @@ from unittest.mock import patch
 
 
 class WorkbenchTests(unittest.TestCase):
+    def test_invalid_mode_and_frame_cannot_launch_worker(self):
+        from reconstruction_workbench import Workbench
+        with tempfile.TemporaryDirectory() as temporary:
+            bench=Workbench(Path(temporary))
+            with patch('reconstruction_workbench.subprocess.Popen') as process:
+                for mode,first in [('invalid',1),('local',0),('local',True),('local',900)]:
+                    with self.assertRaises(ValueError):bench.start('20261028_163545_462434',mode,first)
+                process.assert_not_called()
+
     def setup_capture(self,root,name='20261028_163545_462434'):
         folder=root/'evidence/reconstruction'/name;folder.mkdir(parents=True)
         (folder/'frames.jsonl').write_text('{}\n')

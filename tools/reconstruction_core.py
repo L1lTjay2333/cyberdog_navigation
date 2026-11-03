@@ -183,7 +183,8 @@ class FrameQueue:
 
     def offer(self, frame, now):
         if len(self.pending) >= self.capacity:
-            self.pending.pop(0)
+            _, discarded = self.pending.pop(0)
+            if callable(getattr(self,'on_discard',None)):self.on_discard(discarded,'queue_full')
             self.dropped += 1
         self.pending.append((now, frame))
 
@@ -193,6 +194,7 @@ class FrameQueue:
             age = now - receipt
             if age >= self.max_age:
                 self.expired += 1
+                if callable(getattr(self,'on_discard',None)):self.on_discard(frame,'pose_unavailable')
                 continue
             match = lookup(frame) if age >= self.wait else None
             if match is None:

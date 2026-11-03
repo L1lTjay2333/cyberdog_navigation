@@ -100,7 +100,7 @@ def build(session,output):
     info=original.get('raw_archive') or {}
     report.update(source=str(archive.resolve()),source_sha256=source_hash,
                   source_capture_termination=original.get('error'),
-                  all_accepted_frames_used=bool(info.get('complete') and len(records)==info.get('frames')==original.get('accepted_frames')),
+                  all_accepted_frames_used=bool(info.get('complete') and len(records)==info.get('frames')==original.get('received_frames',original.get('accepted_frames'))),
                   processing_seconds=time.perf_counter()-start)
     if hashlib.sha256(archive.read_bytes()).hexdigest()!=source_hash:raise ValueError('Source changed during fusion')
     (output/'fusion_report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')

@@ -41,6 +41,7 @@ def command_velocity(direction,axes=None):
 def limited_velocity(direction,axes,health,now):
     velocity=command_velocity(direction,axes)
     if allowed(direction,health,now):return (0.,0.,0.)
+    if health.get('manual_distance_override') is True:return velocity
     if velocity[0]<=0 or health.get('sensor_mode') not in ('depth_forward_trial','supervised_four_way_trial'):
         return velocity
     clearance=front_clearance(health)
@@ -93,6 +94,7 @@ def allowed(direction, health, now):
         return '其他算法任务正在运行或任务状态过期'
     if supervised:
         if s.get('motion_id') not in (111,112,303):return '请先让机器狗正常站立，当前姿态未通过'
+        if health.get('manual_distance_override') is True:return ''
         if direction in ('backward','shift_left','shift_right','left','right','backward_left','backward_right'):
             return '' # Supervised, short-duration teleoperation; no rear/lateral obstacle avoidance claim.
     if direction == 'backward':

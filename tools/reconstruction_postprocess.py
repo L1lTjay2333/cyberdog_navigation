@@ -151,7 +151,7 @@ def process_capture(session,output):
     summary_path=session/'summary.json'
     original=json.loads(summary_path.read_text(encoding='utf-8')) if summary_path.exists() else {}
     info=original.get('raw_archive') or {}
-    complete=bool(info.get('complete') and info.get('frames')==original.get('accepted_frames')==len(rows))
+    complete=bool(info.get('complete') and info.get('frames')==original.get('received_frames',original.get('accepted_frames'))==len(rows))
     summary={'accepted_frames':len(rows),'frame':origin[0],'raw_archive':{'complete':True,'frames':len(rows),
              'file':'frames.jsonl','derived':True},'error':None,'source_capture_termination':original.get('error')}
     (output/'summary.json').write_text(json.dumps(summary,indent=2),encoding='utf-8')

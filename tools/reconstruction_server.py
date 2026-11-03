@@ -6,17 +6,25 @@ import subprocess
 import threading
 import time
 from datetime import datetime
+from urllib.parse import urlsplit,parse_qs
+from manual_bridge import ManualBridge
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from reconstruction_core import StaticModel, MovingModel
+from reconstruction_core import StaticModel, MovingModel, decode_depth_frame
+from reconstruction_static import ConsensusStaticModel
 from reconstruction_archive import FrameArchive
+from reconstruction_target import TargetBox
+from native_photo_capture import capture as capture_native_photo
 from reconstruction_streaming import StreamingModel
 from reconstruction_readiness import prepare_inputs
 
 ROOT = Path(__file__).resolve().parents[1]
+MANUAL = ManualBridge(ROOT)
 
 
 def capture_failure(stderr, error):
+    if 'not responding' in stderr or 'Broken pipe' in stderr or 'Connection reset' in stderr:
+        return 'SSH传输中断：机器人连接超时或被断开；已保留完整收到的数据，未完成的末帧不计入，请检查网络与机器人状态'
     if 'port 22: Permission denied' in stderr:
         return 'SSH网络连接被运行环境权限限制拒绝；请在允许局域网访问的环境启动建模服务（不是深度帧错误）'
     if 'Permission denied (publickey' in stderr or 'bad permissions' in stderr:
@@ -33,7 +41,10 @@ def capture_failure(stderr, error):
 class Laboratory:
     def __init__(self):
         self.lock = threading.Lock()
-        self.model = StaticModel()
+        self.model = ConsensusStaticModel()
+        self.target = None
+        self.native_photo = {'busy':False,'message':'停稳后可拍原生最高分辨率照片'}
+        self.native_photo_last = 0.
         self.process = None
         self.active = False
         self.status = '尚未采集；只读静态实验，不控制机器狗'
@@ -41,22 +52,46 @@ class Laboratory:
         self.remote = {}
         self.error = None
         self.samples = []
+        self.color_pairs = 0
         self.stopped = threading.Event()
         self.started_unix = None
         self.raw_archive = None
+        self.received_frames = 0
+        self.unposed_archive = None
+        self.fusion_paused = None
         self.preparing = False
         self.running_job = False
         self.camera = {'ready':False,'camera_ready':False,'message':'尚未检查；每次开始采集都会重新核验'}
 
-    def start(self, seconds=30, mode='static'):
+    def take_native_photo(self, stationary):
+        if stationary is not True:raise ValueError('请先停稳机器狗，再点击拍照')
+        with self.lock:
+            if self.native_photo['busy'] or self.preparing:
+                raise ValueError('相机正在准备或拍照，请稍候')
+            if time.monotonic()-self.native_photo_last<5:
+                raise ValueError('原生拍照请至少间隔5秒')
+            session=self.session
+            self.native_photo_last=time.monotonic()
+            self.native_photo={'busy':True,'message':'正在拍摄原生照片并传回电脑，请继续保持静止'}
+        def job():
+            try:
+                report=capture_native_photo(ROOT,session)
+                with self.lock:self.native_photo={'busy':False,'message':'已保存原生照片 %d×%d'%(report['width'],report['height']),'result':report}
+            except Exception as error:
+                with self.lock:self.native_photo={'busy':False,'message':str(error),'error':True}
+        threading.Thread(target=job,daemon=True).start()
+
+    def start(self, seconds=30, mode='static', target_size=None):
+        target = TargetBox(target_size) if target_size is not None else None
         if mode not in ('static', 'moving'):
             raise ValueError('未知采集模式')
         limit = 300 if mode=='moving' else 60
-        if type(seconds) is not int or not 1 <= seconds <= limit:
+        if type(seconds) is not int or not (seconds == 0 or 1 <= seconds <= limit):
             raise ValueError('本模式采集时长须为1—%d秒'%limit)
         with self.lock:
             if self.active or self.preparing or self.running_job:
                 raise ValueError('已有采集或相机准备正在进行')
+            self.target = target
             self.preparing = True
             self.running_job = True
             self.stopped.clear()
@@ -101,14 +136,18 @@ class Laboratory:
     def begin_capture(self,seconds,mode):
         """Caller holds lock, after a fresh successful input check."""
         self.preparing = False
-        self.model = MovingModel() if mode == 'moving' else StaticModel()
+        self.model = MovingModel() if mode == 'moving' else ConsensusStaticModel()
         self.active, self.error, self.remote = True, None, {}
         self.session = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
         self.started_unix = time.time()
         self.status = ('连接移动采集；先静止5秒，等有效帧到达后再人工低速移动' if mode == 'moving'
                        else '连接只读采集；请保持机器狗和场景静止')
         self.samples = []
+        self.color_pairs = 0
         self.raw_archive = None
+        self.received_frames = 0
+        self.unposed_archive = None
+        self.fusion_paused = None
 
     def stop(self):
         self.stopped.set()
@@ -118,6 +157,30 @@ class Laboratory:
         if process is not None and process.poll() is None:
             process.terminate()  # Stop only this SSH subscriber, never a robot task.
 
+    def accept_record(self, record):
+        """Archive validated observations even when online fusion is suspended."""
+        decode_depth_frame(record)
+        self.raw_archive.append(record)
+        if self.raw_archive.truncated:
+            raise ValueError('原始数据存储额度已满；已保存数据保留，请结束本轮并新建采集')
+        self.received_frames += 1
+        if record.get('color_sample') is not None:self.color_pairs += 1
+        if self.fusion_paused:
+            self.status = '继续保存原始数据；在线融合已暂停：'+self.fusion_paused
+            return False
+        try:
+            candidate = self.target.apply(record) if self.target is not None else record
+            changed = self.model.add(candidate)
+        except ValueError as exc:
+            self.fusion_paused = str(exc)
+            self.status = '继续保存原始数据；在线融合已暂停：'+self.fusion_paused
+            return False
+        self.status = '采集中：原始数据持续保存，模型独立融合；不控制机器狗'
+        if changed:
+            self.samples.append({'stamp':record['stamp'],'source_age_s':record.get('source_age_s'),
+                                 'translation':record['translation'],'quaternion':record['quaternion'],**self.model.stats()})
+        return changed
+
     def capture(self, seconds):
         output = ROOT/'evidence'/'reconstruction'/self.session
         process = None
@@ -126,7 +189,8 @@ class Laboratory:
         moving = isinstance(self.model, MovingModel)
         try:
             output.mkdir(parents=True, exist_ok=False)
-            self.raw_archive = FrameArchive(output/'frames.jsonl',max_bytes=(256 if moving else 64)*1024*1024)
+            self.raw_archive = FrameArchive(output/'frames.jsonl',max_bytes=None)
+            self.unposed_archive = FrameArchive(output/'unposed_frames.jsonl',max_bytes=None)
             if self.stopped.is_set():
                 return
             if moving:
@@ -141,9 +205,10 @@ class Laboratory:
                 process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err,
                                            text=True, encoding='utf-8', cwd=str(ROOT))
                 self.process = process
-                watchdog = threading.Timer(seconds+15, self.stop)
-                watchdog.daemon = True
-                watchdog.start()
+                if seconds:
+                    watchdog = threading.Timer(seconds+15, self.stop)
+                    watchdog.daemon = True
+                    watchdog.start()
                 process.stdin.write(code)
                 process.stdin.close()
                 for line in process.stdout:
@@ -152,17 +217,14 @@ class Laboratory:
                     if len(line) > 24*1024*1024:
                         raise ValueError('采集数据超过单帧上限')
                     record = json.loads(line)
+                    if record.get('event') == 'unposed_depth':
+                        self.unposed_archive.append(record)
+                        continue
                     if record.get('event') == 'depth':
                         if abs(record.get('tf_stamp', 0)-record['stamp']) > 1e-6:
                             raise ValueError('深度帧与位姿时间不匹配，停止融合')
                         with self.lock:
-                            changed = self.model.add(record)
-                            self.status = ('移动采集中：只读记录，不控制机器狗；里程计漂移尚未校正' if moving
-                                           else '静态融合中；1厘米体素不代表1厘米精度')
-                            if changed:
-                                self.raw_archive.append(record)
-                                self.samples.append({'stamp': record['stamp'], 'source_age_s': record.get('source_age_s'),
-                                                     'translation':record['translation'],'quaternion':record['quaternion'], **self.model.stats()})
+                            changed = self.accept_record(record)
                         if changed and (len(self.samples) <= 2 or moving and len(self.samples)%10 == 0):
                             raw = json.dumps(record).encode('utf-8')
                             if raw_saved_bytes+len(raw) <= 8*1024*1024:
@@ -171,6 +233,7 @@ class Laboratory:
                     else:
                         with self.lock:
                             self.remote = record
+                            if record.get('event') == 'waiting':self.status = '等待数据恢复：'+record.get('message','')
                             if record.get('event') == 'error':
                                 self.error = record.get('message', '采集数据失效')
                                 self.camera=dict(self.camera,ready=False,message=self.error)
@@ -197,7 +260,7 @@ class Laboratory:
                     process.kill()
                     process.wait(timeout=3)
             with self.lock:
-                self.status = self.error or ('采集已结束；保留模型，尚未完成绝对精度验收' if self.model.accepted_frames else '未收到可融合帧；检查相机与同时间TF')
+                self.status = self.error or (('采集结束；原始数据已保存，部分未融合：'+self.fusion_paused) if self.fusion_paused else None) or ('采集已结束；保留模型，尚未完成绝对精度验收' if self.model.accepted_frames else '未收到可融合帧；检查相机与同时间TF')
             try:
                 if isinstance(self.model,StreamingModel):
                     with self.lock:self.model.finish()
@@ -225,8 +288,15 @@ class Laboratory:
                           remote=self.remote, stable_points=count, control_requests=0,
                           mode='moving_local_point_cloud' if isinstance(self.model,MovingModel) else 'static_local_point_cloud',
                           moving_supported=True, calibration_status='未完成真实尺寸校准')
+            result.update(received_frames=self.received_frames, fusion_paused=self.fusion_paused,
+                          unfused_frames=max(0,self.received_frames-self.model.accepted_frames))
+            result['unposed_frames'] = self.unposed_archive.frames if self.unposed_archive else 0
+            result['native_photo'] = self.native_photo
+            result['color_pairs'] = self.color_pairs
+            result['color_geometry_verified'] = False
+            result['target_box'] = {'center':self.target.center.tolist() if self.target.center is not None else None,'size':self.target.size.tolist()} if self.target else None
             result.update(preparing=self.preparing,camera=self.camera,busy=self.active or self.preparing or self.running_job)
-            result['raw_archive'] = self.raw_archive.stats(self.model.accepted_frames) if self.raw_archive else None
+            result['raw_archive'] = self.raw_archive.stats(self.received_frames) if self.raw_archive else None
             result['capture_reference'] = self.capture_reference()
             result['trajectory'] = getattr(self.model,'trajectory',[])
             if include_points:
@@ -254,6 +324,8 @@ class Laboratory:
             if not all((folder/name).is_file() for name in ('summary.json','frame_01.json','model.ply')):
                 continue
             summary = json.loads((folder/'summary.json').read_text(encoding='utf-8'))
+            self.received_frames = summary.get('received_frames',summary.get('accepted_frames',0))
+            self.fusion_paused = summary.get('fusion_paused')
             if summary.get('stable_points',0) <= 0:
                 continue  # An empty/failed capture must not hide the last usable model.
             source = json.loads((folder/'frame_01.json').read_text(encoding='utf-8'))
@@ -332,7 +404,19 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        if self.path in ('/', '/index.html'):
+        if urlsplit(self.path).path == '/scan-manual':
+            page=(ROOT/'manual.html').read_text(encoding='utf-8').replace('<script src="/manual.js"></script>', '<script>window.SCAN_CONSOLE=true;</script><script src="/manual.js"></script>').replace('空格起立/趴下，','').replace('不依赖地图。','扫描遥控台：保持站立，空格仅停车。').replace('保留的队友地图/导航页面','返回扫描页面')
+            self.send(page.encode('utf-8'),'text/html; charset=utf-8')
+        elif self.path == '/manual.js':
+            self.send((ROOT/'manual.js').read_bytes(),'text/javascript; charset=utf-8')
+        elif urlsplit(self.path).path == '/manual_state':
+            owner=parse_qs(urlsplit(self.path).query).get('owner',[None])[0]
+            report=MANUAL.report(owner)
+            report['manual_distance_override']=json.loads((ROOT/'config/scope.json').read_text(encoding='utf-8')).get('manual_distance_override') is True
+            self.send(json.dumps(report,ensure_ascii=False).encode('utf-8'))
+        elif self.path == '/manual_transport.js':
+            self.send((ROOT/'manual_transport.js').read_bytes(),'text/javascript; charset=utf-8')
+        elif self.path in ('/', '/index.html'):
             self.send((ROOT/'reconstruction.html').read_bytes(), 'text/html; charset=utf-8')
         elif self.path == '/state':
             self.send(json.dumps(LAB.report(), ensure_ascii=False, allow_nan=False).encode('utf-8'))
@@ -359,8 +443,20 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(length))
             if not isinstance(data, dict):
                 raise ValueError('请求格式错误')
-            if self.path == '/start':
-                LAB.start(data.get('seconds', 30), mode=data.get('mode','static'))
+            if self.path in ('/manual/connect','/manual/control','/manual/stop','/manual/disconnect'):
+                if self.path == '/manual/connect':
+                    # Explicit operator takeover of scanning locomotion; verify real task afresh.
+                    result=prepare_inputs(ROOT,False,threading.Event(),lambda p:None)
+                    if not result.get('ready') or result.get('task')!={'status':5,'code':0}:
+                        raise ValueError('扫描输入未就绪，不能接管扫描遥控')
+                    MANUAL.connect(data.get('owner'),auxiliary_task=5)
+                elif self.path == '/manual/disconnect':MANUAL.disconnect()
+                elif self.path == '/manual/stop':MANUAL.control({**data,'direction':'stop','armed':False})
+                else:MANUAL.control(data)
+            elif self.path == '/start':
+                LAB.start(data.get('seconds', 30), mode=data.get('mode','static'), **({'target_size':data['target_size']} if 'target_size' in data else {}))
+            elif self.path == '/photo/native':
+                LAB.take_native_photo(data.get('stationary'))
             elif self.path == '/camera/connect':
                 LAB.connect_camera()
             elif self.path == '/stop':
@@ -368,7 +464,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise ValueError('未知实验操作')
             self.send(b'{"ok":true}')
-        except (ValueError, TypeError) as exc:
+        except (ValueError, TypeError, RuntimeError, OSError) as exc:
             self.send(json.dumps({'ok':False,'error':str(exc)}, ensure_ascii=False).encode('utf-8'), status=400)
 
     def log_message(self, *args):
@@ -390,4 +486,5 @@ if __name__ == '__main__':
         server.serve_forever()
     finally:
         LAB.stop()
+        MANUAL.disconnect()
         server.server_close()

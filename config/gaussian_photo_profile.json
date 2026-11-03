@@ -1,0 +1,12 @@
+{
+  "mode": "stock_native_still",
+  "camera_service_command": 1,
+  "width": 0,
+  "height": 0,
+  "observed_native_size": [4208, 3120],
+  "observed_on": "2026-11-01",
+  "minimum_interval_seconds": 5,
+  "require_stationary_capture": true,
+  "rgb_depth_registration_verified": false,
+  "note": "Native still-photo profile; invoked by the explicit /photo/native endpoint, alongside streaming capture. Stock 0x0 selects native size. Actual returned file dimensions must be checked."
+}

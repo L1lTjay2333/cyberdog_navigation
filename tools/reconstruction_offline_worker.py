@@ -68,7 +68,16 @@ def run(session,output):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('session',type=Path);parser.add_argument('output',type=Path)
+    parser.add_argument('--mode',choices=['standard','local','color'],default='standard')
+    parser.add_argument('--first-frame',type=int,default=1)
     args=parser.parse_args()
-    try:run(args.session,args.output)
+    try:
+        if args.mode=='color':
+            from reconstruction_color import run_color
+            run_color(args.session,args.output,args.first_frame)
+        elif args.mode=='local':
+            from reconstruction_local import run_local
+            run_local(args.session,args.output,args.first_frame)
+        else:run(args.session,args.output)
     except Exception as error:
         progress(args.output,'failed',str(error)[:1000]);traceback.print_exc();raise SystemExit(1)

@@ -15,7 +15,7 @@ class FrameArchive:
         if self.truncated:
             return
         data = (json.dumps(record, separators=(',', ':'), allow_nan=False)+'\n').encode('utf-8')
-        if self.bytes+len(data) > self.max_bytes:
+        if self.max_bytes is not None and self.bytes+len(data) > self.max_bytes:
             self.truncated = True
             return
         with self.path.open('ab') as stream:

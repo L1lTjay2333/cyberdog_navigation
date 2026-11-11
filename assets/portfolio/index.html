@@ -1,0 +1,88 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CyberDog · 作品集</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#f4f1e9;color:#39352f;font:14px system-ui,"Microsoft YaHei",sans-serif}header{padding:22px 4vw;border-bottom:1px solid #d8d0c1;display:flex;justify-content:space-between;align-items:center;gap:12px}h1{font-size:23px;margin:0}a{color:#526b73}main{padding:24px 4vw;display:grid;grid-template-columns:300px minmax(0,1fr);gap:22px}.cards{display:grid;gap:12px}.work{padding:0;text-align:left;background:#fffcf4;border:1px solid #d9cfbc;border-radius:12px;overflow:hidden;cursor:pointer;color:inherit}.work[aria-pressed=true]{outline:2px solid #718e98}.work img{width:100%;height:120px;object-fit:contain;background:#f3eee2}.work strong,.work small{display:block;margin:10px 14px}.work small{color:#847868}.viewer{position:sticky;top:20px;align-self:start;background:#fffcf4;border:1px solid #ded5c6;border-radius:16px;padding:18px}#scene{height:52vh;min-height:280px;background:#eee8dc;border-radius:12px;overflow:hidden;touch-action:none}#scene canvas{display:block;width:100%;height:100%}.tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0}button,.tools a{padding:8px 12px;background:#efe8da;border:1px solid #c9bca5;border-radius:8px;text-decoration:none;font:inherit}#note{line-height:1.8;color:#756751}#map{max-width:100%;max-height:240px;object-fit:contain;background:#e7e0d3}#loading{min-height:20px;color:#857352}@media(max-width:760px){main{grid-template-columns:1fr}.cards{grid-template-columns:1fr 1fr}.viewer{position:static;grid-row:1}header{flex-wrap:wrap}#scene{height:42vh}}</style>
+<link rel="stylesheet" href="./portfolio-cards.css"><script src="./portfolio-cards.js"></script>
+<script type="importmap">{"imports":{"three":"./three.module.js"}}</script>
+<header><h1>CyberDog · 作品集</h1><div><a href="/">← 返回主页</a>　<a href="./portfolio.zip" download>下载作品集完整包</a></div></header>
+<main><nav id="cards" class="cards" aria-label="作品选择"></nav><section class="viewer"><h2 id="title">加载作品…</h2><p id="note"></p><div id="scene" aria-label="可旋转的三维作品"></div><div class="tools"><button id="reset">恢复视角</button><a id="download" download>下载原始 PLY</a><label id="floor-control" hidden><input id="floor-toggle" type="checkbox" checked> 展示补面</label><a id="floor-download" hidden download>下载展示补面 PLY</a><span>左键旋转 · 右键平移 · 滚轮缩放</span></div><p id="floor-note" style="color:#8c6842" hidden>地板为后期生成的展示补面，可关闭对照实测点云。</p><p id="loading" role="status"></p><img id="map" alt="本次保存的二维地图" hidden></section></main>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from './OrbitControls.js';
+const container=document.getElementById('scene'),renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));container.append(renderer.domElement);
+const scene=new THREE.Scene();scene.background=new THREE.Color('#eee8dc');scene.up.set(0,0,1);
+const camera=new THREE.PerspectiveCamera(48,1,.01,500);camera.up.set(0,0,1);
+const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;
+scene.add(new THREE.HemisphereLight(0xffffff,0x77715d,2.5));const light=new THREE.DirectionalLight(0xffffff,2);light.position.set(4,-3,7);scene.add(light);
+let floorObject=null;
+let object=null,center=new THREE.Vector3(),radius=1,version=0;
+function reset(){camera.position.copy(center).add(new THREE.Vector3(1,-1,.9).multiplyScalar(radius*2.1));camera.near=Math.max(.005,radius/1000);camera.far=radius*100;camera.updateProjectionMatrix();controls.target.copy(center);controls.update();}
+document.getElementById('reset').onclick=reset;
+document.getElementById('floor-toggle').onchange=e=>{
+ if(floorObject)floorObject.visible=e.target.checked;
+ if(window.portfolioProbe)window.portfolioProbe.floorVisible=Boolean(floorObject&&e.target.checked);
+};
+new ResizeObserver(()=>{const w=container.clientWidth,h=container.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix()}).observe(container);
+renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera)});
+const works=await(await fetch('./manifest.json')).json();
+async function select(work){
+ const current=++version;
+ const isCloud = work.kind !== 'map' && work.kind !== 'raw';
+ document.querySelector('.viewer .tools').hidden = !isCloud;
+ document.querySelector('.viewer .tools').style.display = isCloud ? '' : 'none';
+ container.style.display = isCloud ? '' : 'none';
+ document.getElementById('download').hidden = !isCloud;
+ if(floorObject){scene.remove(floorObject);floorObject.geometry.dispose();floorObject.material.dispose();floorObject=null;}
+ for(const id of ['floor-control','floor-download','floor-note'])document.getElementById(id).hidden=!work.floor;
+ if(work.floor)document.getElementById('floor-download').href='./'+work.floor.download;
+ document.getElementById('floor-toggle').checked=true;
+ document.getElementById('title').textContent=work.title;
+ document.getElementById('note').textContent=work.date+' · '+(isCloud ? work.points.toLocaleString()+' 个顶点/点。' : '')+work.note;
+ document.getElementById('loading').textContent='正在载入真实采集数据…';
+ const download=document.getElementById('download');download.href='./'+work.id+'.ply';
+ const map=document.getElementById('map');map.hidden=!work.map;if(work.map)map.src='./'+work.map;
+ if (!isCloud) {
+  if(object){scene.remove(object);object.geometry.dispose();object.material.dispose();object=null;}
+  document.getElementById('loading').textContent=work.kind==='map'?'已加载二维地图':'原始帧已归档';
+  window.portfolioProbe={id:work.id,vertices:0,kind:work.kind};
+  return;
+ }
+ document.querySelectorAll('.work').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.id===work.id)));
+ try{
+ const response=await fetch('./'+work.id+'.bin');if(!response.ok)throw Error('数据读取失败');
+ const data=new Float32Array(await response.arrayBuffer());if(current!==version)return;
+ const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(data,3));
+ if(object){scene.remove(object);object.geometry.dispose();object.material.dispose();}
+ if(work.kind==='mesh'){geometry.computeVertexNormals();object=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:0xa5a49c,roughness:.9,side:THREE.DoubleSide}));}
+ else object=new THREE.Points(geometry,new THREE.PointsMaterial({color:0x526f78,size:.018,sizeAttenuation:true}));
+ scene.add(object);geometry.computeBoundingSphere();center.copy(geometry.boundingSphere.center);radius=Math.max(.1,geometry.boundingSphere.radius);reset();
+ document.getElementById('loading').textContent='已加载 · '+(work.kind==='mesh'?'灰色表面模型':'点云作品')+' · 展示历史实测数据';
+ window.portfolioProbe={id:work.id,vertices:data.length/3};
+ if(work.floor){
+  const reply=await fetch('./'+work.floor.file);
+  if(!reply.ok)throw Error('展示补面读取失败');
+  const floorData=new Float32Array(await reply.arrayBuffer());
+  if(current!==version)return;
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(floorData,3));g.computeVertexNormals();
+  floorObject=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0xd4c7ae,roughness:.98,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:1}));
+  floorObject.visible=document.getElementById('floor-toggle').checked;scene.add(floorObject);
+  window.portfolioProbe.floorVisible=floorObject.visible;
+  window.portfolioProbe.floorTriangles=floorData.length/9;
+ }
+
+ }catch(e){if(current===version)document.getElementById('loading').textContent=e.message;}
+}
+window.mountPortfolioCards(works, select, remaining=>{
+ const selected=window.portfolioProbe?.id;
+ if(remaining.some(w=>w.id===selected))return;
+ ++version;
+ for(const item of [object,floorObject])if(item){scene.remove(item);item.geometry.dispose();item.material.dispose();}
+ object=null;floorObject=null;window.portfolioProbe=null;
+ if(remaining.length){select(remaining[0]);return;}
+ document.getElementById('title').textContent='作品集为空';
+ document.getElementById('note').textContent='原始采集数据仍保留';
+ document.getElementById('loading').textContent='';
+ container.style.display='none';
+ document.querySelector('.viewer .tools').style.display='none';
+ for(const id of ['download','floor-control','floor-download','floor-note','map'])document.getElementById(id).hidden=true;
+});
+if(works.length)select(works[0]);else document.getElementById('title').textContent='作品集为空';
+</script></html>

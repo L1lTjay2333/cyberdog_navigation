@@ -32,7 +32,7 @@ def checked_pose(frame):
     return translation, quaternion / norm
 
 
-def decode_depth_frame(frame, stride=4):
+def decode_depth_frame(frame, stride=4, *, sample_depth=None):
     translation, quaternion = checked_pose(frame)
     if type(stride) is not int or stride < 1:
         raise ValueError('Invalid sampling stride')
@@ -61,7 +61,9 @@ def decode_depth_frame(frame, stride=4):
         raise ValueError('Invalid intrinsics')
     dtype = ('>' if frame['bigendian'] else '<') + ('u2' if itemsize == 2 else 'f4')
     image = np.ndarray((height, width), dtype=dtype, buffer=raw, strides=(step, itemsize))
-    z = image[::stride, ::stride].astype(float) * (.001 if itemsize == 2 else 1.)
+    scale = .001 if itemsize == 2 else 1.
+    z = (image[::stride, ::stride].astype(float) * scale if sample_depth is None
+         else sample_depth(image, stride, scale))
     v, u = np.mgrid[0:height:stride, 0:width:stride]
     valid = np.isfinite(z) & (z >= .15) & (z <= 4.)
     with np.errstate(over='ignore', invalid='ignore', divide='ignore'):

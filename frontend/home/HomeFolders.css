@@ -1,0 +1,26 @@
+.options.folder-options {
+  display: block;
+  width: 330px;
+  max-width: 100%;
+  overflow: visible;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.folder-option { position: relative; pointer-events: auto; }
+.folder-surface {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 230px;
+  padding: 0 15px 10px;
+}
+.folder-options .folder-stage:focus-visible {
+  outline: 3px solid #357acc;
+  border-radius: 10px;
+}
+@media (max-width: 750px) {
+  .folder-surface { height: 210px; }
+  .folder-surface .folder-root { zoom: .85; }
+}

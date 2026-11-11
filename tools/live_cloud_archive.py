@@ -26,7 +26,7 @@ class LiveCloudArchive:
    session=self.root/('session_'+str(int(time.time()))+'_'+uuid.uuid4().hex[:8]) if self.key!=key else getattr(self,'session',None)
    if session is None:session=self.root/('session_'+str(int(time.time()))+'_'+uuid.uuid4().hex[:8])
    session.mkdir(exist_ok=True);self.session=session
-   record={'key':key,'stamp':stamp,'frame':c['frame'],'points_xyz':pts,'registration':c.get('registration')}
+   record={'schema_version':2,'geometry_kind':'acquisition_world','key':key,'stamp':stamp,'frame':c['frame'],'points_xyz':pts,'registration':c.get('registration')}
    depth=s.get('archive_depth')
    if depth and depth['stamp']==stamp and depth['frame']==c['frame']:
     record['depth']=depth

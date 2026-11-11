@@ -59,8 +59,7 @@ try:
   if s.status==8 and s.code==0 and REQUEST.get('stop_localization') is True:
    old=Path('/home/mi/mapping')
    if old.is_symlink() or not old.is_dir():raise RuntimeError('Saved-map backup target is invalid')
-   dest=Path(tempfile.mkdtemp(prefix='computer_map_backup_',dir='/home/mi'))/'mapping'
-   shutil.copytree(str(old),str(dest));emit('BACKUP',path=str(dest))
+   stage_previous_map(old,emit)
    req=StopAlgoTask.Request();req.task_id=req.ALGO_TASK_ALL;req.map_name=''
    r=call('stop_algo_task',StopAlgoTask,req,40)
    emit('LOCALIZATION_STOP_RESPONSE',result=int(r.result),code=int(r.code))
@@ -82,8 +81,7 @@ try:
   if REQUEST.get('mapping_sensor')=='lidar':ensure_lidar_scan()
   old=Path('/home/mi/mapping')
   if old.exists():
-   dest=Path(tempfile.mkdtemp(prefix='computer_map_backup_',dir='/home/mi'))/'mapping'
-   shutil.copytree(str(old),str(dest));emit('BACKUP',path=str(dest))
+   stage_previous_map(old,emit)
   a=ActionClient(n,Navigation,NS+'/start_algo_task')
   if not a.wait_for_server(timeout_sec=5):raise RuntimeError('Mapping action unavailable')
   g=Navigation.Goal();g.nav_type=g.NAVIGATION_TYPE_START_MAPPING;g.outdoor=False;g.poses=[];g.map_name=REQUEST['map_name']
@@ -109,7 +107,7 @@ try:
   if r.result!=r.SUCCESS or r.code!=0:raise RuntimeError('Stock map save rejected')
   s=call('algo_task_status',AlgoTaskStatus,AlgoTaskStatus.Request())
   if s.status!=101 or s.code!=0:raise RuntimeError('Map save did not return to idle; no map files changed')
-  emit('MAP_FILES_SELECTED',**archive_other_maps('/home/mi/mapping',REQUEST['map_name']))
+  emit('MAP_FILES_SELECTED',**finish_map_rotation(Path('/home/mi/mapping'),REQUEST['map_name']))
   emit('SAVED',status=int(s.status),map_name=req.map_name)
 except Exception as e:
  emit('ERROR',message=str(e));raise

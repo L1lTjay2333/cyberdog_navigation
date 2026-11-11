@@ -1,8 +1,89 @@
 <!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>三维建模实验室</title>
-<style>body{margin:0;background:#101824;color:#e4edf7;font:16px system-ui}main{max-width:1150px;margin:24px auto;padding:0 20px}h1{font-size:25px}p{line-height:1.7;color:#afbed0}a{color:#68c5ff}button,.download{display:inline-block;background:#18344e;color:#e4edf7;border:1px solid #436680;border-radius:7px;padding:10px 15px;margin:4px;cursor:pointer;text-decoration:none}button:disabled{opacity:.4;cursor:default}canvas{width:100%;height:60vh;min-height:340px;background:#07121f;border:1px solid #38516a;border-radius:12px;touch-action:none}#status{padding:12px;border-left:4px solid #58bcff;background:#17283b}#stats{font:14px ui-monospace,monospace;line-height:1.7;white-space:pre-wrap}small{color:#afbed0}main{max-width:1800px}.scan-layout{display:grid;grid-template-columns:370px minmax(0,1fr);gap:22px;align-items:start}.scan-remote{position:sticky;top:16px;min-width:0}.scan-remote h2{font-size:20px;margin:0 0 8px}.scan-remote p{font-size:14px;margin:8px 0}.scan-remote iframe{height:calc(100vh - 150px)!important;min-height:580px}.scan-main{min-width:0}#view{height:62vh}@media(max-width:1000px){.scan-layout{grid-template-columns:1fr}.scan-remote{position:static}.scan-remote iframe{height:600px!important;min-height:0}}
+<link rel="stylesheet" href="/assets/home/text-ui.css"><style>body{margin:0;background:#101824;color:#e4edf7;font:16px system-ui}main{max-width:1150px;margin:24px auto;padding:0 20px}h1{font-size:25px}p{line-height:1.7;color:#afbed0}a{color:#68c5ff}button,.download{display:inline-block;background:#18344e;color:#e4edf7;border:1px solid #436680;border-radius:7px;padding:10px 15px;margin:4px;cursor:pointer;text-decoration:none}button:disabled{opacity:.4;cursor:default}canvas{width:100%;height:60vh;min-height:340px;background:#07121f;border:1px solid #38516a;border-radius:12px;touch-action:none}#status{padding:12px;border-left:4px solid #58bcff;background:#17283b}#stats{font:14px ui-monospace,monospace;line-height:1.7;white-space:pre-wrap}small{color:#afbed0}main{max-width:1800px}.scan-layout{display:grid;grid-template-columns:370px minmax(0,1fr);gap:22px;align-items:start}.scan-remote{position:sticky;top:16px;min-width:0}.scan-remote h2{font-size:20px;margin:0 0 8px}.scan-remote p{font-size:14px;margin:8px 0}.scan-remote iframe{height:calc(100vh - 150px)!important;min-height:580px}.scan-main{min-width:0}#view{height:62vh}@media(max-width:1000px){.scan-layout{grid-template-columns:1fr}.scan-remote{position:static}.scan-remote iframe{height:600px!important;min-height:0}}
+#model-toolbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:#111f30;border:1px solid #304555;border-radius:10px;padding:8px}
+.model-action-group{display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:11px}
+#model-toolbar button,#model-toolbar a{font-size:11px;padding:7px 9px;margin:2px}
+#model-toolbar label{font-size:11px}
+#model-toolbar .model-action-group>p{display:none}
+#native-photo-status{font-size:10px;max-width:250px}
+#model-more{margin-left:auto;font-size:11px}
+.model-diagnostics{position:absolute;z-index:20;right:15px;top:145px;width:min(650px,90vw);max-height:65vh;overflow:auto;background:#101e2d;padding:18px;border:1px solid #436680;border-radius:10px}
+@media(min-width:1000px){
+html,body{height:100%;overflow:hidden}
+main{height:100dvh;max-width:none;margin:0;padding:10px;display:flex;flex-direction:column;gap:9px;box-sizing:border-box}
+main>h1{font-size:19px;margin:0 0 2px}
+#model-toolbar{flex:none}
+.scan-layout{grid-template-columns:230px minmax(0,1fr);gap:10px;flex:1;min-height:0;align-items:stretch}
+.scan-remote{position:static;display:flex;flex-direction:column;min-height:0}
+.scan-remote>h2{font-size:13px;margin:0 0 7px}
+.scan-remote>p{display:none}
+.scan-remote iframe{height:100%!important;min-height:0;flex:1;background:#101824}
+.scan-main{display:flex;flex-direction:column;min-height:0;overflow:hidden;background:#0c1622;border:1px solid #304555;border-radius:10px;padding:10px}
+.scan-main>a{font-size:10px}
+.model-live-feedback{font-size:12px!important;line-height:1.4;padding:7px!important;margin:5px 0!important;border-width:1px!important}
+#camera-status,#status,#head-reference{font-size:10px;line-height:1.4;margin:3px 0;padding:5px}
+#view{height:100%!important;min-height:0!important;flex:1;width:100%;object-fit:contain}
+#view+div{flex:none;display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+#view+div button{font-size:10px;padding:6px 9px;margin:4px 0}
+#view+div small{font-size:10px}
+}
+
+:root{color-scheme:light}
+body{background:#f4f1ea;color:#28252d}
+p,small,#stats{color:#69636f}
+a{color:#475a85}
+button,.download{background:#e8e4dc;color:#34303b;border-color:#cbc5bb}
+button:hover:not(:disabled),.download:hover{background:#dcd7ce}
+input,select{background:#fbf9f3;color:#34303b;border:1px solid #cfc8bd;border-radius:5px}
+#status,#live-feedback{background:#e9e5dc!important;color:#44404b!important;border-color:#9299ad!important}
+canvas,iframe{border-color:#ccc5b9!important}
+.scan-remote{background:#faf8f2d9;padding:15px;border-radius:14px;border:1px solid #d5d0c8}
+.scan-main{background:#faf8f2d9;padding:15px;border-radius:14px;border:1px solid #d5d0c8}
+
+/* Frosted glass surfaces: transparency applies to the panel, not its contents. */
+:root{--glass-panel:linear-gradient(135deg,rgba(216,234,255,.075),rgba(14,24,41,.54) 60%);--glass-edge:rgba(193,219,255,.22);--glass-shadow:inset 0 1px 0 rgba(255,255,255,.12),inset 1px 0 0 rgba(255,255,255,.035),0 12px 35px rgba(0,5,16,.20)}
+button,.download{background:linear-gradient(135deg,rgba(167,202,245,.16),rgba(45,70,105,.32));border-color:rgba(181,211,249,.25);box-shadow:inset 0 1px 0 rgba(255,255,255,.10);transition:background .18s,border-color .18s}
+button:hover:not(:disabled),.download:hover{background:linear-gradient(135deg,rgba(182,218,255,.24),rgba(70,105,151,.42));border-color:rgba(182,218,255,.55)}
+button:focus-visible,a:focus-visible{outline:2px solid #79cfff;outline-offset:3px}
+
+body{background:radial-gradient(ellipse at 8% 10%,rgba(71,111,191,.32),transparent 50%),radial-gradient(ellipse at 90% 80%,rgba(29,127,142,.20),transparent 50%),#0b1220;background-attachment:fixed}
+#model-toolbar,.scan-main,.scan-remote iframe{
+ background:var(--glass-panel)!important;border-color:var(--glass-edge)!important;box-shadow:var(--glass-shadow);
+ backdrop-filter:blur(18px) saturate(130%);-webkit-backdrop-filter:blur(18px) saturate(130%)
+}
+.model-diagnostics{background:rgba(14,24,41,.95);border-color:var(--glass-edge);backdrop-filter:blur(24px)}
+#live-feedback,#status{background:rgba(19,57,78,.48)!important;border-color:rgba(106,194,255,.36)!important}
+#stop{background:linear-gradient(135deg,rgba(173,62,78,.65),rgba(109,32,46,.7));border-color:#f28c9b88}
+#view{border-color:rgba(180,216,255,.22);box-shadow:inset 0 1px 0 #ffffff0b}
+@supports not (backdrop-filter:blur(1px)){#model-toolbar,.scan-main{background:rgba(17,29,46,.94)!important}}
+
+/* Warm ivory glass palette, applied last so all surfaces share one theme. */
+:root{color-scheme:light;--glass-panel:linear-gradient(135deg,rgba(255,253,247,.84),rgba(246,241,230,.66));--glass-edge:rgba(255,255,255,.86);--glass-shadow:inset 0 1px 0 #fff,0 8px 26px rgba(90,73,46,.075);--muted:#706b63;--cyan:#52647a}
+body{color:#34312c}
+button,.download{background:linear-gradient(145deg,rgba(255,254,249,.94),rgba(230,223,209,.80));border-color:#cfc6b7;color:#49433a;box-shadow:inset 0 1px 0 #ffffffbf}
+button:hover:not(:disabled),.download:hover{background:#fffdf5;border-color:#b0a38d}
+button:disabled{opacity:1;color:#928b80;background:rgba(226,219,207,.55);border-color:#dad2c5}
+a{color:#52647a}p,.note,small,.workflow,pre{color:#716a60}
+
+body{background:radial-gradient(ellipse at 10% 15%,#fffdf5,transparent 65%),radial-gradient(ellipse at 90% 80%,#e3d5bb70,transparent 55%),#f3eee3;color:#34312c}
+#model-toolbar,.scan-main,.scan-remote iframe{background:var(--glass-panel)!important;border-color:var(--glass-edge)!important;color:#34312c}
+#live-feedback,#status{background:rgba(235,226,207,.7)!important;border-color:#c6b491!important;color:#5f5340}
+#camera-status,#head-reference,#stats{color:#716758}
+.model-diagnostics{background:rgba(251,248,239,.98);color:#34312c;border-color:#d6c9b2}
+#view{background:#f0ebe1;border-color:#d2c5ae}
+#stop{background:linear-gradient(145deg,#f6e4dc,#e9c9bd);border-color:#cea397;color:#853f36}
+
+.home-return{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border:1px solid #c7bba6;border-radius:9px;background:rgba(255,252,243,.82);color:#574c3b;text-decoration:none;font-size:12px;line-height:1.3;white-space:nowrap;box-shadow:inset 0 1px 0 #fff}
+.home-return:hover{background:#fffdf7;border-color:#a89575}
+.home-return:focus-visible{outline:2px solid #667e9c;outline-offset:3px}
+
+#model-page-header{display:flex;align-items:center;gap:14px;flex:none}
+#model-page-header h1{font-size:19px;margin:0}
 </style>
-<main><h1>三维建模实验室</h1><p>深度相机 → 同时间完整位姿 → 电脑融合。右侧记录深度数据，左侧由你手动遥控行走。静态模式请保持不动；移动模式仅供人工低速扫描；满块自动保存并继续，尚无闭环纠偏，也未完成真实尺寸校准。</p>
-<div><button id="camera-connect">连接/检查深度相机</button><button id="start">开始静态采集 · 手动停止</button><label>移动采集时长 <select id="moving-duration"><option value="0" selected>持续采集 · 手动停止</option><option value="60">1分钟</option><option value="180">3分钟</option><option value="300">5分钟</option></select></label><button id="moving-start" disabled>开始持续移动采集</button><button id="stop">停止本次采集</button><a class="download" href="/model.ply" download="cyberdog_local_model.ply">导出PLY模型</a><a href="http://127.0.0.1:8765/">返回导航网页</a></div>
+<main><a class="home-return" id="model-home-return" href="/" aria-label="返回主页">← 返回主页</a><h1>三维建模实验室</h1><p>深度相机 → 同时间完整位姿 → 电脑融合。右侧记录深度数据，左侧由你手动遥控行走。静态模式请保持不动；移动模式仅供人工低速扫描；满块自动保存并继续，尚无闭环纠偏，也未完成真实尺寸校准。</p>
+<div><button id="robot-connection-check">检查机器人连接</button><span id="robot-connection-feedback" role="status"></span></div>
+<script>document.getElementById('robot-connection-check').onclick=async()=>{const output=document.getElementById('robot-connection-feedback');output.textContent='正在检查…';try{const reply=await fetch('/connection/check',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const result=await reply.json();output.textContent=result.message||result.error;}catch(e){output.textContent='连接检查失败，请检查电脑后台';}};</script>
+<div><button id="camera-connect">连接/检查深度相机</button><button id="start">开始3D扫描 · 实时融合</button><label>移动采集时长 <select id="moving-duration"><option value="0" selected>持续采集 · 手动停止</option><option value="60">1分钟</option><option value="180">3分钟</option><option value="300">5分钟</option></select></label><button id="moving-start" disabled>开始持续移动采集</button><button id="stop">停止本次采集</button><a class="download" href="/model.ply" download="cyberdog_local_model.ply">导出PLY模型</a><a href="http://127.0.0.1:8765/">返回导航网页</a></div>
 <div id="live-feedback" role="status" aria-live="polite" style="padding:14px;background:#173247;border:2px solid #58bcff;border-radius:8px;margin:10px 0;font-size:18px">正在读取采集状态…</div><p><a href="http://127.0.0.1:8768/">打开已采集数据的离线处理与灰模</a></p>
 <p><a href="http://127.0.0.1:8769/near_range/">查看 10 月 29 日扫描：原范围 / 2 米近景建模对照</a>（已保存结果，需本机对照服务运行）</p>
 <div><label><input id="target-only" type="checkbox" checked>仅保留中心目标</label> 范围尺寸（米）：<label>X <input id="target-x" type="number" min="0.1" max="3" step="0.1" value="1" style="width:65px"></label><label>Y <input id="target-y" type="number" min="0.1" max="3" step="0.1" value="1" style="width:65px"></label><label>Z <input id="target-z" type="number" min="0.1" max="3" step="0.1" value="1.2" style="width:65px"></label><p>开始前将目标实体对准相机画面中央；以首帧中央深度锁定固定空间范围，绕行时不随狗头转动。原始帧保留供离线修正，在线模型裁剪范围外的深度；这不是自动物体识别，范围内的背景仍可能保留。</p></div><div><label><input id="photo-stationary" type="checkbox">机器狗已停稳</label><button id="native-photo">停稳拍一张 · 原生最高分辨率</button><span id="native-photo-status">照片单独保存到电脑，拍完后再继续绕行</span></div><p id="capture-guide">移动试验：开始后先静止5秒，看到有效接收帧和稳定模型点增长，再由你低速转动或移动；已保存的块继续保留。位姿异常会暂停在线融合，原始数据继续保存；短暂缺帧会等待恢复，采集功能不能让机器狗停车。请先松开方向键或点击左侧停止按钮停车。</p>
@@ -10,23 +91,54 @@
 <script>
 'use strict';
 const scanMain=document.querySelector('main'),remote=document.getElementById('scan-remote'),layout=document.createElement('div'),content=document.createElement('div');layout.className='scan-layout';content.className='scan-main';remote.className='scan-remote';remote.remove();for(const child of [...scanMain.children])if(child.tagName!=='H1')content.append(child);layout.append(remote,content);scanMain.append(layout);
+const modelHeader=document.createElement('header');modelHeader.id='model-page-header';
+const homeReturn=document.getElementById('model-home-return');
+homeReturn.href=window.location.origin;
+modelHeader.append(homeReturn,scanMain.querySelector('h1'));
+scanMain.prepend(modelHeader);
+
+const toolbar=document.createElement('div');toolbar.id='model-toolbar';
+const connectionGroup=document.getElementById('robot-connection-check').parentElement;
+const captureGroup=document.getElementById('camera-connect').parentElement;
+const targetGroup=document.getElementById('target-only').parentElement.parentElement;
+const photoGroup=document.getElementById('native-photo').parentElement;
+for(const group of [connectionGroup,captureGroup,targetGroup,photoGroup]){group.classList.add('model-action-group');toolbar.append(group);}
+scanMain.insertBefore(toolbar,layout);
+const more=document.createElement('details');more.id='model-more';const title=document.createElement('summary');title.textContent='更多设置与采集详情';more.append(title);
+const diagnostics=document.createElement('div');diagnostics.className='model-diagnostics';
+for(const child of [...content.children]){
+ if(child.tagName==='P'&&!['camera-status','status','head-reference'].includes(child.id))diagnostics.append(child);
+}
+diagnostics.append(document.getElementById('stats'));more.append(diagnostics);toolbar.append(more);
+document.getElementById('live-feedback').classList.add('model-live-feedback');
+const remoteFrame=remote.querySelector('iframe');
+remoteFrame.addEventListener('load',()=>{
+ try{
+  const style=remoteFrame.contentDocument.createElement('style');
+  style.textContent=' .scan-console{color:#494236!important;background:transparent!important;padding:8px!important;font-size:12px!important;overflow:hidden}.scan-console pre,.scan-console>p:not(#message){display:none!important}.scan-console button{padding:7px!important;font-size:11px!important;margin:3px!important}.scan-console #pad{gap:4px!important;margin:7px 0!important}.scan-console canvas{width:100px!important;height:100px!important;margin:6px auto!important}.scan-console input{font-size:10px!important;padding:7px!important}.scan-console button{background:linear-gradient(145deg,#fffaf0,#e5dac6)!important;color:#514737!important;border:1px solid #cdbfa5!important}.scan-console #stop{background:#edd3c7!important;color:#7f3c30!important}.scan-console input{color:#514737!important;background:#fffaf0!important;border-color:#bcab8c!important}.scan-console #message{color:#7b6442!important;display:block!important;font-size:11px!important;line-height:1.4}';
+  remoteFrame.contentDocument.head.append(style);
+ }catch(e){}
+});
+
 const canvas=document.getElementById('view'),ctx=canvas.getContext('2d');
 let points=[],center=[0,0,0],radius=1,yaw=.5,pitch=.5,zoom=1,drag=null,session=null,lastFrames=-1,head=null,trajectory=[];
 function checkedHead(d){const h=d.capture_reference;if(!h||h.session!==d.session||h.frame!==d.frame||h.kind!=='captured_camera_origin'||!Array.isArray(h.position)||!Array.isArray(h.forward)||h.position.length!==3||h.forward.length!==3||![...h.position,...h.forward].every(Number.isFinite)||Math.abs(Math.hypot(...h.forward)-1)>.01)return null;return h;}
 function headTip(){return head.position.map((v,i)=>v+.25*head.forward[i]);}
 function fit(){if(!points.length)return;const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];const fitPoints=head?[...points,head.position,headTip(),...trajectory]:points;for(const p of fitPoints)for(let i=0;i<3;i++){lo[i]=Math.min(lo[i],p[i]);hi[i]=Math.max(hi[i],p[i]);}center=lo.map((v,i)=>(v+hi[i])/2);radius=Math.max(.08,...lo.map((v,i)=>(hi[i]-v)/2));zoom=1;}
-function draw(){const w=canvas.width,h=canvas.height;ctx.fillStyle='#07121f';ctx.fillRect(0,0,w,h);const c=Math.cos(yaw),s=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch),scale=Math.min(w,h)*.38*zoom/radius;
+let drawPending=false;
+function draw(){if(drawPending)return;drawPending=true;requestAnimationFrame(()=>{drawPending=false;if(!document.hidden)paintCloud();});}
+function paintCloud(){const w=canvas.width,h=canvas.height;ctx.fillStyle='#f0ebe1';ctx.fillRect(0,0,w,h);const c=Math.cos(yaw),s=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch),scale=Math.min(w,h)*.38*zoom/radius;
  const project=p=>{const x=p[0]-center[0],y=p[1]-center[1],z=p[2]-center[2],u=c*x-s*y,v=s*x+c*y;return [w/2+u*scale,h/2-(cp*z-sp*v)*scale,cp*v+sp*z];};
  function line(a,b,color,label){const x=project(a),y=project(b);ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x[0],x[1]);ctx.lineTo(y[0],y[1]);ctx.stroke();if(label){ctx.fillStyle=color;ctx.fillText(label,y[0]+5,y[1]);}}
  const step=radius<.5?.1:radius<2?.5:1;for(let d=-Math.ceil(radius/step)*step;d<=radius;d+=step){line([center[0]+d,center[1]-radius,center[2]],[center[0]+d,center[1]+radius,center[2]],'#1c3044');line([center[0]-radius,center[1]+d,center[2]],[center[0]+radius,center[1]+d,center[2]],'#1c3044');}
- const plotted=points.map(p=>[...project(p),p[2]]);plotted.sort((a,b)=>a[2]-b[2]);for(const p of plotted){const hue=200-100*(p[3]-center[2]+radius)/(2*radius);ctx.fillStyle=`hsl(${hue},80%,65%)`;ctx.fillRect(p[0],p[1],2,2);}
+ const stride=Math.max(1,Math.ceil(points.length/(drag?8000:25000))); const plotted=[];for(let i=0;i<points.length;i+=stride){const p=points[i];plotted.push([...project(p),p[2]]);}plotted.sort((a,b)=>a[2]-b[2]);for(const p of plotted){const hue=200-100*(p[3]-center[2]+radius)/(2*radius);ctx.fillStyle=`hsl(${hue},80%,65%)`;ctx.fillRect(p[0],p[1],2,2);}
  for(let i=1;i<trajectory.length;i++)line(trajectory[i-1],trajectory[i],'#f6c65a');
  const size=Math.min(.25,radius);line(center,[center[0]+size,center[1],center[2]],'#ff7373','X');line(center,[center[0],center[1]+size,center[2]],'#7de6a0','Y');line(center,[center[0],center[1],center[2]+size],'#7cbfff','Z');
  if(head){const p=project(head.position),tip=project(headTip()),angle=Math.atan2(tip[1]-p[1],tip[0]-p[0]);
   ctx.save();ctx.strokeStyle='#42c8ff';ctx.fillStyle='#42c8ff';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(p[0],p[1]);ctx.lineTo(tip[0],tip[1]);ctx.stroke();
   if(Math.hypot(tip[0]-p[0],tip[1]-p[1])>3){ctx.beginPath();ctx.moveTo(tip[0],tip[1]);ctx.lineTo(tip[0]-15*Math.cos(angle-.45),tip[1]-15*Math.sin(angle-.45));ctx.lineTo(tip[0]-15*Math.cos(angle+.45),tip[1]-15*Math.sin(angle+.45));ctx.closePath();ctx.fill();}
   ctx.translate(p[0],p[1]);ctx.rotate(angle);ctx.lineWidth=2;ctx.strokeStyle='#e7f7ff';ctx.fillStyle='#1495cc';ctx.beginPath();ctx.ellipse(0,0,16,13,0,0,Math.PI*2);ctx.fill();ctx.stroke();
-  for(const side of [-1,1]){ctx.beginPath();ctx.moveTo(-8,side*9);ctx.lineTo(-17,side*20);ctx.lineTo(3,side*12);ctx.closePath();ctx.fill();ctx.stroke();}ctx.fillStyle='#e7f7ff';for(const side of [-1,1]){ctx.beginPath();ctx.arc(4,side*6,2.4,0,Math.PI*2);ctx.fill();}ctx.fillStyle='#07121f';ctx.beginPath();ctx.arc(13,0,3.5,0,Math.PI*2);ctx.fill();ctx.restore();
+  for(const side of [-1,1]){ctx.beginPath();ctx.moveTo(-8,side*9);ctx.lineTo(-17,side*20);ctx.lineTo(3,side*12);ctx.closePath();ctx.fill();ctx.stroke();}ctx.fillStyle='#e7f7ff';for(const side of [-1,1]){ctx.beginPath();ctx.arc(4,side*6,2.4,0,Math.PI*2);ctx.fill();}ctx.fillStyle='#f0ebe1';ctx.beginPath();ctx.arc(13,0,3.5,0,Math.PI*2);ctx.fill();ctx.restore();
   ctx.font='bold 16px system-ui';ctx.fillStyle='#7ddaff';ctx.fillText(head.latest_fused_pose?'狗头 · 最新已融合帧':'狗头 · 相机位置（采集时）',p[0]+22,p[1]-18);ctx.font='14px system-ui';ctx.fillText('相机朝前',tip[0]+12,tip[1]+18);
  }if(!points.length){ctx.fillStyle='#a9bdd2';ctx.fillText('等待有效观测；静态模式需5帧多数一致，不补造表面',30,40);}}
 canvas.onpointerdown=e=>{drag=[e.clientX,e.clientY];canvas.setPointerCapture(e.pointerId);};canvas.onpointermove=e=>{if(!drag)return;yaw+=(e.clientX-drag[0])*.008;pitch=Math.max(-Math.PI/2,Math.min(Math.PI/2,pitch+(e.clientY-drag[1])*.008));drag=[e.clientX,e.clientY];draw();};canvas.onpointerup=canvas.onpointercancel=()=>drag=null;
@@ -36,7 +148,7 @@ function targetOptions(){return document.getElementById('target-only').checked?{
 document.getElementById('initial').onclick=()=>{yaw=.5;pitch=.5;fit();draw();};
 async function act(path,data){try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const d=await r.json();if(!d.ok)throw Error(d.error);}catch(e){document.getElementById('status').textContent=e.message;}}
 document.getElementById('native-photo').onclick=()=>act('/photo/native',{stationary:document.getElementById('photo-stationary').checked});
-document.getElementById('camera-connect').onclick=()=>act('/camera/connect',{});document.getElementById('start').onclick=()=>act('/start',{seconds:0,mode:'static',...targetOptions()});const duration=document.getElementById('moving-duration');duration.onchange=()=>{document.getElementById('moving-start').textContent=Number(duration.value)===0?'开始持续移动采集':'开始'+duration.value+'秒移动采集';};document.getElementById('moving-start').onclick=()=>act('/start',{seconds:Number(duration.value),mode:'moving',...targetOptions()});document.getElementById('stop').onclick=()=>act('/stop',{});
+document.getElementById('camera-connect').onclick=()=>act('/camera/connect',{});document.getElementById('start').onclick=()=>act('/start',{seconds:0,mode:'moving',...targetOptions()});const duration=document.getElementById('moving-duration');duration.onchange=()=>{document.getElementById('moving-start').textContent=Number(duration.value)===0?'开始持续移动采集':'开始'+duration.value+'秒移动采集';};document.getElementById('moving-start').onclick=()=>act('/start',{seconds:Number(duration.value),mode:'moving',...targetOptions()});document.getElementById('stop').onclick=()=>act('/stop',{});
 let lastReceived=-1,lastReceiveChange=Date.now(),feedbackSession=null;
 function showLiveFeedback(d){
  const box=document.getElementById('live-feedback'),count=d.received_frames??d.accepted_frames??0;
@@ -47,5 +159,20 @@ function showLiveFeedback(d){
  box.textContent=receiving+' ｜ 已保存 '+count+' 帧 ｜ 待补位姿 '+(d.unposed_frames||0)+' 帧 ｜ 已融合 '+(d.accepted_frames??0)+' 帧 ｜ '+fusion+' ｜ 页面刷新 '+new Date().toLocaleTimeString();
  box.style.borderColor=d.fusion_paused?'#ffb454':running?'#58d6a0':'#58bcff';
 }
-async function update(){try{const r=await fetch('/state',{cache:'no-store',signal:AbortSignal.timeout(5000)});if(!r.ok)throw Error('状态读取失败');const d=await r.json();showLiveFeedback(d);document.getElementById('status').textContent=d.status;document.getElementById('native-photo').disabled=Boolean(d.native_photo?.busy)||d.preparing;document.getElementById('native-photo-status').textContent=d.native_photo?.message||'服务需更新后才能原生拍照';const busy=d.busy||d.active||d.preparing;document.getElementById('start').disabled=busy;document.getElementById('moving-start').disabled=busy||!d.moving_supported;document.getElementById('camera-connect').disabled=busy;document.getElementById('stop').disabled=!busy;document.getElementById('camera-status').textContent='相机输入：'+(d.camera?.message||'尚未检查')+' · 每次开始均重新核验';const changed=d.session!==session,oldHead=head;head=checkedHead(d);trajectory=(d.trajectory||[]).map(p=>p.position).filter(p=>Array.isArray(p)&&p.length===3&&p.every(Number.isFinite));document.getElementById('head-reference').textContent=head?(head.latest_fused_pose?'蓝色狗头：最新已融合帧相机位置 · 黄色线：采集轨迹 · 非实时头部关节姿态':'蓝色狗头：相机位置 · 蓝色箭头：相机朝前 · 采集时参考，不是实时头部姿态'):'狗头参考尚不可用；不猜测位置和方向。';if(changed){session=d.session;lastFrames=-1;}if(d.accepted_frames!==lastFrames||Boolean(head)!==Boolean(oldHead)){points=d.points||[];if(changed||lastFrames<2||Boolean(head)!==Boolean(oldHead))fit();lastFrames=d.accepted_frames;draw();}document.getElementById('stats').textContent=`模式：${d.mode==='moving_local_point_cloud'?'小范围移动（无闭环纠偏）':'静态'}　已保存原始帧：${d.received_frames??d.accepted_frames}　已融合帧：${d.accepted_frames}　${d.streaming_submaps?'分块稳定点（边界可重复）':'稳定模型点'}：${d.stable_points}　${d.streaming_submaps?'当前块体素':'体素'}：${d.streaming_submaps?d.active_voxels:d.voxels}/${d.max_voxels}\n局部坐标：${d.frame||'等待'}　体素边长：${d.voxel_m*100}厘米（不等于测量精度）${Number.isFinite(d.travel_m)?'　累计相机位移：'+d.travel_m.toFixed(3)+'米':''}${d.temporal_filter?'\n静态一致性：窗口'+d.temporal_window_frames+'/5帧 · 更新'+d.consensus_updates+'次 · 一致像素'+d.consensus_pixels+'/'+d.consensus_valid_pixels+' · 至少3帧支持；先补偿小幅位姿变化，超限停止':''}\n已存彩色配对：${d.color_pairs||0}张 · 尚未验证彩色几何对齐\n精度：${d.calibration_status}　运动请求：${d.control_requests}\n会话：${d.session||'尚未开始'}${d.streaming_submaps?'\n在线分块：已落盘'+d.sealed_parts+'块 · 网页抽样预览，完整点云可导出 · 分块文件配额'+Math.round(d.max_storage_bytes/1048576)+'MiB':''}`;}catch(e){document.getElementById('live-feedback').textContent='网页状态读取失败，当前接收情况未知；上次成功更新 '+new Date(lastReceiveChange).toLocaleTimeString();document.getElementById('live-feedback').style.borderColor='#ff6b6b';document.getElementById('status').textContent='本地建模服务连接中断；没有新模型数据';document.getElementById('moving-start').disabled=true;}finally{setTimeout(update,750);}}draw();update();
-</script></html>
+let modelVersion='';
+async function update(){try{const r=await fetch('/state?since='+encodeURIComponent(modelVersion),{cache:'no-store',signal:AbortSignal.timeout(5000)});if(!r.ok)throw Error('状态读取失败');const d=await r.json();modelVersion=d.model_version||'';showLiveFeedback(d);document.getElementById('status').textContent=d.status;document.getElementById('native-photo').disabled=Boolean(d.native_photo?.busy)||d.preparing;document.getElementById('native-photo-status').textContent=d.native_photo?.message||'服务需更新后才能原生拍照';const busy=d.busy||d.active||d.preparing;document.getElementById('start').disabled=busy;document.getElementById('moving-start').disabled=busy||!d.moving_supported;document.getElementById('camera-connect').disabled=busy;document.getElementById('stop').disabled=!busy;document.getElementById('camera-status').textContent='相机输入：'+(d.camera?.message||'尚未检查')+' · 每次开始均重新核验';const changed=d.session!==session,oldHead=head;head=checkedHead(d);trajectory=(d.trajectory||[]).map(p=>p.position).filter(p=>Array.isArray(p)&&p.length===3&&p.every(Number.isFinite));document.getElementById('head-reference').textContent=head?(head.latest_fused_pose?'蓝色狗头：最新已融合帧相机位置 · 黄色线：采集轨迹 · 非实时头部关节姿态':'蓝色狗头：相机位置 · 蓝色箭头：相机朝前 · 采集时参考，不是实时头部姿态'):'狗头参考尚不可用；不猜测位置和方向。';if(changed){session=d.session;lastFrames=-1;}if(d.accepted_frames!==lastFrames||Boolean(head)!==Boolean(oldHead)){if(Array.isArray(d.points))points=d.points;if(changed||lastFrames<2||Boolean(head)!==Boolean(oldHead))fit();lastFrames=d.accepted_frames;draw();}document.getElementById('stats').textContent=`模式：${d.mode==='moving_local_point_cloud'?'小范围移动（无闭环纠偏）':'静态'}　已保存原始帧：${d.received_frames??d.accepted_frames}　已融合帧：${d.accepted_frames}　${d.streaming_submaps?'分块稳定点（边界可重复）':'稳定模型点'}：${d.stable_points}　${d.streaming_submaps?'当前块体素':'体素'}：${d.streaming_submaps?d.active_voxels:d.voxels}/${d.max_voxels}\n局部坐标：${d.frame||'等待'}　体素边长：${d.voxel_m*100}厘米（不等于测量精度）${Number.isFinite(d.travel_m)?'　累计相机位移：'+d.travel_m.toFixed(3)+'米':''}${d.temporal_filter?'\n静态一致性：窗口'+d.temporal_window_frames+'/5帧 · 更新'+d.consensus_updates+'次 · 一致像素'+d.consensus_pixels+'/'+d.consensus_valid_pixels+' · 至少3帧支持；先补偿小幅位姿变化，超限停止':''}\n已存彩色配对：${d.color_pairs||0}张 · 尚未验证彩色几何对齐\n精度：${d.calibration_status}　运动请求：${d.control_requests}\n会话：${d.session||'尚未开始'}${d.streaming_submaps?'\n在线分块：已落盘'+d.sealed_parts+'块 · 网页抽样预览，完整点云可导出 · 分块文件配额'+Math.round(d.max_storage_bytes/1048576)+'MiB':''}`;}catch(e){document.getElementById('live-feedback').textContent='网页状态读取失败，当前接收情况未知；上次成功更新 '+new Date(lastReceiveChange).toLocaleTimeString();document.getElementById('live-feedback').style.borderColor='#ff6b6b';document.getElementById('status').textContent='本地建模服务连接中断；没有新模型数据';document.getElementById('moving-start').disabled=true;}finally{setTimeout(update,750);}}draw();update();
+</script><script src="/assets/home/text-ui.js"></script></html>
+<script>
+(()=>{
+const model=!!document.getElementById('robot-connection-check');
+const button=document.getElementById(model?'robot-connection-check':'sshcheck');
+const feedback=document.getElementById(model?'robot-connection-feedback':'sshfeedback');
+const input=document.createElement('input'); input.type='text';input.placeholder='机器人 IPv4 地址';input.setAttribute('aria-label','机器人 IP 地址');input.style.cssText='width:140px;padding:7px;border:1px solid #cdbfa5;border-radius:7px;background:#fffaf0;color:#494236';input.value=localStorage.getItem('cyberdog-ip')||'10.239.88.115';button.before(input);
+button.textContent='连接 SSH 并准备相机';
+const root=location.protocol+'//'+location.hostname+':8765';
+async function post(path,body){const r=await fetch(root+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(60000)});const d=await r.json();if(!r.ok||!d.ok)throw Error(d.message||d.error||'连接失败');return d;}
+async function connect(){button.disabled=true;try{feedback.textContent='正在验证 SSH…';await post(['','connection','check'].join(String.fromCharCode(47)),{ip:input.value.trim()});localStorage.setItem('cyberdog-ip',input.value.trim());feedback.textContent='SSH 已连接，正在开启深度相机和准备扫描位姿…';await post(['','model','camera','connect'].join(String.fromCharCode(47)),{});for(let i=0;i<90;i++){await new Promise(r=>setTimeout(r,1000));const d=await(await fetch(root+['','model','state?points=0'].join(String.fromCharCode(47)),{cache:'no-store',signal:AbortSignal.timeout(5000)})).json();if(d.preparing)continue;if(!d.camera?.ready)throw Error('SSH 已连接；'+(d.camera?.message||d.status));feedback.textContent='相机已就绪，正在连接共享遥控…';const owner=sessionStorage.getItem('cyberdog-control-owner')||crypto.randomUUID();sessionStorage.setItem('cyberdog-control-owner',owner);await post(['','manual','connect'].join(String.fromCharCode(47)),{owner});feedback.textContent='SSH、相机与共享遥控已连接；可切换地图或3D页面操作';return;}throw Error('相机准备超时，请查看相机状态');}catch(e){feedback.textContent=e.message;}finally{button.disabled=false;}}
+button.onclick=connect;
+if(!model)document.getElementById('sshreconnect').onclick=connect;
+})();
+</script>

@@ -9,8 +9,10 @@ const pointers=new Map();
 let points=[],frame='map',lastStamp=null,lastStart=null,lastTask=null,yaw=.5,pitch=.55,zoom=1,center=[0,0,0],radius=3,drag=null,viewFitted=false,robot=null;
 function reset(){model.clear();hits.clear();modelFrame=null;points=[];lastStamp=null;viewFitted=false;panX=panY=0;robot=null;draw();}
 function bounds(){if(!points.length)return;const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];const fitPoints=robot?[...points,[robot.x,robot.y,0]]:points;for(const p of fitPoints)for(let a=0;a<3;a++){lo[a]=Math.min(lo[a],p[a]);hi[a]=Math.max(hi[a],p[a]);}center=[(lo[0]+hi[0])/2,(lo[1]+hi[1])/2,0];radius=Math.max(.5,(hi[0]-lo[0])/2,(hi[1]-lo[1])/2,Math.abs(lo[2]),Math.abs(hi[2]));viewFitted=true;}
-function draw(){ctx.fillStyle='#101c29';ctx.fillRect(0,0,canvas.width,canvas.height);if(!points.length){ctx.fillStyle='#bdd0e0';ctx.font='18px system-ui';ctx.fillText('等待真实深度点云',30,50);return;}
- const cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch),scale=230*zoom/radius,step=Math.max(1,Math.ceil(points.length/20000)),out=[];
+let drawPending=false;
+function draw(){if(drawPending)return;drawPending=true;requestAnimationFrame(()=>{drawPending=false;if(!document.hidden)paintCloud();});}
+function paintCloud(){ctx.fillStyle='#f0ebe1';ctx.fillRect(0,0,canvas.width,canvas.height);if(!points.length){ctx.fillStyle='#756a59';ctx.font='18px system-ui';ctx.fillText('等待真实深度点云',30,50);return;}
+ const cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch),scale=230*zoom/radius,step=Math.max(1,Math.ceil(points.length/(pointers.size?8000:20000))),out=[];
  const project=p=>{const x=p[0]-center[0],y=p[1]-center[1],z=p[2],u=cy*x-sy*y,v=sy*x+cy*y;return [450+panX+u*scale,300+panY-(cp*z-sp*v)*scale];};
  function referenceLine(a,b,color,width=1){a=project(a);b=project(b);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.stroke();}
  // Ground projection of depth hits only: never mark rays/occluded space as free.
@@ -39,7 +41,7 @@ function draw(){ctx.fillStyle='#101c29';ctx.fillRect(0,0,canvas.width,canvas.hei
   ctx.beginPath();ctx.moveTo(tip[0],tip[1]);ctx.lineTo(tip[0]-18*Math.cos(angle)+8*Math.sin(angle),tip[1]-18*Math.sin(angle)-8*Math.cos(angle));ctx.lineTo(tip[0]-18*Math.cos(angle)-8*Math.sin(angle),tip[1]-18*Math.sin(angle)+8*Math.cos(angle));ctx.closePath();ctx.fill();ctx.stroke();
   ctx.font='16px system-ui';ctx.fillStyle=color;ctx.fillText(robot.fresh?'机器狗 · 前向':'上次位置（定位过期）',tip[0]+12,tip[1]-12);
  }
- ctx.fillStyle='#bdd0e0';ctx.font='14px system-ui';ctx.fillText('拖动：'+(moveMode==='pan'?'平移':'旋转')+' · 右键/Shift拖动平移 · 滚轮缩放 · 双指平移缩放',18,580);
+ ctx.fillStyle='#756a59';ctx.font='14px system-ui';ctx.fillText('拖动：'+(moveMode==='pan'?'平移':'旋转')+' · 右键/Shift拖动平移 · 滚轮缩放 · 双指平移缩放',18,580);
 }
 canvas.style.touchAction='none';canvas.style.cursor='grab';
 canvas.addEventListener('contextmenu',e=>e.preventDefault());

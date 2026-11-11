@@ -6,5 +6,7 @@ const {chromium}=require('../evidence/browser_test_runtime/node_modules/playwrig
  await p.locator('[data-mode="processed"]').click();await p.waitForFunction(()=>window.roomProbe?.mode==='processed');await p.screenshot({path:'evidence/live_room_processed.png'});
  await p.locator('[data-mode="raw"]').click();await p.waitForFunction(()=>window.roomProbe?.mode==='raw');await p.screenshot({path:'evidence/live_room_raw.png'});
  await p.locator('[data-mode="replayed"]').click();await p.waitForFunction(()=>window.roomProbe?.mode==='replayed');assert(await p.evaluate(()=>roomProbe.positions>0));
+ for(const mode of ['depthraw','depthgray']){await p.locator(`[data-mode="${mode}"]`).click();await p.waitForFunction(mode=>window.roomProbe?.mode===mode,mode);assert(await p.evaluate(()=>roomProbe.positions>0));}
+ await p.screenshot({path:'evidence/live_room_depth_gray.png'});
  assert.deepEqual(errors,[]);console.log('PASS gray mesh / processed / raw switching, real geometry loaded, no browser errors');
 }finally{await b.close();}})().catch(e=>{console.error(e);process.exit(1)});

@@ -11,6 +11,8 @@ class Handler(BaseHTTPRequestHandler):
    '/vendor/three.core.js':THREE/'build/three.core.js','/vendor/OrbitControls.js':THREE/'examples/jsm/controls/OrbitControls.js'}
   routes.update({'/'+n:OUT/n for n in ['result.json','progress.json','raw.bin','processed.bin','gray.bin','raw.ply','processed.ply','gray.ply','gray.obj']})
   routes['/replayed.bin']=ROOT/'evidence/room_registration_replay/replayed.bin'
+  routes['/depthgray.bin']=ROOT/'evidence/offline_depth_room_check_20261104/supported.bin'
+  routes['/depthraw.bin']=ROOT/'evidence/offline_depth_room_check_20261104/raw.bin'
   p=routes.get(self.path.split('?')[0])
   if not p or not p.is_file():self.send_error(404);return
   data=p.read_bytes();self.send_response(200);self.send_header('Content-Type',mimetypes.guess_type(p.name)[0] or 'application/octet-stream');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(data)));self.end_headers()

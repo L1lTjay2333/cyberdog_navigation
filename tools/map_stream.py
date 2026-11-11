@@ -5,6 +5,7 @@ import zlib
 import math
 import time
 import threading
+from collections import deque
 import rclpy
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
@@ -24,6 +25,7 @@ rclpy.init(args=[])
 node = rclpy.create_node('flat_navigation_readonly_map', enable_rosout=False, start_parameter_services=False)
 tf_buffer = Buffer()
 mapping_pose_buffer = Buffer()
+mapping_pose_history = deque(maxlen=300)
 tf_listener = TransformListener(tf_buffer,node)
 state = {'map': None, 'pose': None, 'task': None, 'odom': None, 'cloud': None, 'tf': {}, 'started_unix': time.time()}
 footprint_observation=FootprintObservation()
@@ -62,6 +64,7 @@ def map_receive(msg):
 def task_receive(msg):
     if msg.task_status==5 and (state.get('task') or {}).get('status')!=5:
         mapping_pose_buffer.clear()
+        mapping_pose_history.clear()
         footprint_observation.poses=[]
         maps_by_frame.pop('map',None)
     state['task'] = {'status': msg.task_status, 'sub_status': msg.task_sub_status, 'received_unix': time.time()}
@@ -184,6 +187,21 @@ def align_pending_cloud():
                 intrinsics=[float(info.p[i]) for i in (0,5,2,6)],
                 translation=[p.x,p.y,p.z],quaternion=[q.x,q.y,q.z,q.w],
                 depth_zlib_b64=base64.b64encode(zlib.compress(bytes(image.data),1)).decode('ascii'))
+        if depth_pair is not None and target=='laser_odom':
+            base=mapping_pose_buffer.lookup_transform(
+                target,'base_link',rclpy.time.Time.from_msg(header.stamp)).transform
+            extrinsic=tf_buffer.lookup_transform(
+                'base_link',header.frame_id,rclpy.time.Time.from_msg(header.stamp)).transform
+            def pose_record(transform):
+                p,q=transform.translation,transform.rotation
+                return dict(translation=[p.x,p.y,p.z],quaternion=[q.x,q.y,q.z,q.w])
+            state['archive_depth']['base_pose']=pose_record(base)
+            state['archive_depth']['camera_extrinsic']=pose_record(extrinsic)
+            state['archive_depth']['local_pose_history']=[
+                pose for pose in list(mapping_pose_history)
+                if cloud['stamp']-2 <= pose['stamp'] <= cloud['stamp']+.5]
+            state['archive_depth']['pose_source']=NS+'/dog_pose'
+            state['archive_depth']['pose_kind']='stock_local_slam'
         cloud.pop('alignment_error',None)
         pending_cloud=None
     except Exception as exc:cloud['alignment_error']=str(exc)[:160]
@@ -207,6 +225,9 @@ def pose_receive(msg):
             t.transform.rotation.x=q.x/math.sqrt(norm);t.transform.rotation.y=q.y/math.sqrt(norm)
             t.transform.rotation.z=q.z/math.sqrt(norm);t.transform.rotation.w=q.w/math.sqrt(norm)
             mapping_pose_buffer.set_transform(t,'stock_dog_pose')
+            mapping_pose_history.append(dict(stamp=stamp,translation=[p.x,p.y,p.z],
+                quaternion=[t.transform.rotation.x,t.transform.rotation.y,
+                            t.transform.rotation.z,t.transform.rotation.w]))
         footprint_observation.observe(state['raw_pose'])
 
 def select_display_pose(status,grid,raw,previous,now):

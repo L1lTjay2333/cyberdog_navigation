@@ -6,6 +6,7 @@ import zipfile
 from pathlib import Path
 import numpy as np
 from reconstruction_core import MovingModel, checked_pose, decode_depth_frame
+from reconstruction_frame_quality import sample_clean_depth
 from reconstruction_submaps import DiskSubmaps
 
 
@@ -22,17 +23,20 @@ class StreamingModel(MovingModel):
         angle = 2*math.acos(min(1., abs(float(np.dot(q, previous_q)))))
         if not 0 < dt <= 2.5:
             raise ValueError('Depth/pose sequence has a time gap; start a new scan')
-        if distance > .2 or distance/dt > .45 or angle > math.radians(35) or angle/dt > 1.2:
+        # Account for irregular arrival intervals; a normal displacement over
+        # a longer interval must not permanently freeze fusion.
+        if distance/dt > .45 or angle/dt > 1.2:
             raise ValueError('Pose jump or movement too fast; fusion stopped, robot not controlled')
 
-    def add(self, frame, stride=4):
+    def add(self, frame, stride=3):
         t,q = checked_pose(frame)
         if self.anchor is not None:
             if frame['frame'] != self.frame or frame['source_frame'] != self.source_frame:
                 raise ValueError('Coordinate frame changed; start a new model')
             if frame['stamp'] <= self.stamp:return False
             self.check_motion(t,q,frame['stamp'])
-        points = decode_depth_frame(frame,stride)
+        # Preserve the odometry poses, frame order and original voxel fusion.
+        points = decode_depth_frame(frame, stride, sample_depth=sample_clean_depth)
         self.store.add(points)
         self.cells = self.store.cells
         self.refresh_sealed_preview()

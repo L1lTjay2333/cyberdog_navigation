@@ -1,0 +1,4 @@
+const{chromium}=require('../evidence/browser_test_runtime/node_modules/playwright');const assert=require('assert/strict');
+(async()=>{const b=await chromium.launch({channel:'msedge',headless:true});try{const p=await b.newPage({viewport:{width:1366,height:768}});for(const path of ['/navigation','/model/']){
+await p.goto('http://127.0.0.1:8765'+path);const link=p.getByRole('link',{name:'返回主页',exact:true});await link.waitFor();assert.equal(await link.count(),1);assert(await link.isVisible());const box=await link.boundingBox();assert(box.y<65);await link.click();await p.waitForURL('http://127.0.0.1:8765/');await p.locator('#home-folders').waitFor();
+}console.log('PASS both visible top return buttons navigate to root homepage')}finally{await b.close()}})().catch(e=>{console.error(e);process.exit(1)});

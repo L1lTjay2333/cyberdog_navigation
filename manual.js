@@ -19,7 +19,15 @@ function freshestBattery(...samples){
   .sort((a,b)=>b.received_unix-a.received_unix)[0]||null;
 }
 const keyDirections={KeyW:'forward',KeyS:'backward',KeyA:'left',KeyD:'right',KeyJ:'shift_left',KeyK:'shift_right'};
-const owner=crypto.randomUUID();let sequence=0;
+// Same browser tab (including the modeling iframe) shares one control session.
+const owner=sessionStorage.getItem('cyberdog-control-owner')||crypto.randomUUID();
+sessionStorage.setItem('cyberdog-control-owner',owner);
+let sequence=0;
+const nextSequence=()=>{
+ sequence=Math.max(sequence+1,Number(sessionStorage.getItem('cyberdog-control-sequence')||0)+1,Date.now()*1000);
+ sessionStorage.setItem('cyberdog-control-sequence',String(sequence));
+ return sequence;
+};
 const controlWorker=scanConsole?new Worker('/manual_transport.js'):null;
 let workerRequest=0;const workerCalls=new Map();
 if(controlWorker)controlWorker.onmessage=({data})=>{
@@ -29,10 +37,11 @@ if(controlWorker)controlWorker.onmessage=({data})=>{
 };
 async function manualPost(path,body){
  if(controlWorker)return new Promise((resolve,reject)=>{const id=++workerRequest;workerCalls.set(id,{resolve,reject});controlWorker.postMessage({id,path,body:{...body,owner}});});
- const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,owner,sequence:++sequence}),signal:AbortSignal.timeout(path==='/manual/connect'?45000:1000)});
+ const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,owner,sequence:nextSequence()}),signal:AbortSignal.timeout(path==='/manual/connect'?45000:1000)});
  const j=await r.json();if(!j.ok)throw Error(j.message||j.error);return j;
 }
-function release(){pressedKeys.clear();held='stop';heldKey=null;heldAxes=null;token++;if(!live)return;manualPost('/manual/stop',{}).catch(e=>{localControlError=e.message;msg.textContent='停车请求未确认：'+e.message+'；必要时使用物理急停';});}
+function release(){pressedKeys.clear();held='stop';heldKey=null;heldAxes=null;token++;if(!live)return Promise.resolve();return manualPost('/manual/stop',{}).catch(e=>{localControlError=e.message;msg.textContent='停车请求未确认：'+e.message+'；必要时使用物理急停';});}
+window.addEventListener('operator-end-navigation',()=>{release();live=false;enabled=false;localControlError='已结束控制，请重新连接遥控后再操作';});
 function setAxes(x,y){
  const norm=Math.max(1,Math.hypot(x,y));x/=norm;y/=norm;
  if(Math.abs(x)<.01)x=0;if(Math.abs(y)<.01)y=0;
@@ -69,7 +78,24 @@ batteryLabel.id=(manualPanel?'control-':'')+'battery';
 keyboardCapture.insertAdjacentElement('afterend',batteryLabel);
 const postureButton=document.createElement('button');postureButton.textContent='空格：起立 / 趴下';
 postureButton.hidden=scanConsole;postureButton.className='wide';batteryLabel.insertAdjacentElement('afterend',postureButton);
-postureButton.onclick=()=>{release();if(live)manualPost('/manual/posture',{}).catch(e=>{localControlError=e.message;});else localControlError='请先连接本页遥控';};
+const postureFeedback=document.createElement('div');
+postureFeedback.setAttribute('role','status');postureFeedback.setAttribute('aria-live','polite');
+postureFeedback.style.cssText='display:block!important;font-size:12px;line-height:1.5;margin:5px 0;color:#795432;white-space:normal';
+postureFeedback.textContent='先点击键盘区域，再按空格；也可点击起立 / 趴下按钮';
+postureButton.after(postureFeedback);
+let posturePending=false,lastPostureMessage='';
+async function requestPosture(){
+ if(posturePending)return;
+ keyboardFeedback='已收到空格 / 姿态按钮';
+ if(!live){localControlError='姿态未发送：请先连接本页遥控';postureFeedback.textContent=localControlError;return;}
+ posturePending=true;postureButton.disabled=true;localControlError='';
+ postureFeedback.textContent='已收到操作，正在停车并提交姿态请求…';
+ try{await release();await manualPost('/manual/posture',{});postureFeedback.textContent='姿态请求已提交，等待机器人反馈';}
+ catch(e){localControlError=e.message;postureFeedback.textContent='姿态请求未确认：'+e.message;}
+ finally{posturePending=false;postureButton.disabled=false;}
+}
+postureButton.onclick=requestPosture;
+
 const controlNote=(manualPanel||document).querySelector?.('p.note');
 if(controlNote)controlNote.textContent='W/S 前后；A/D 原地左旋/右旋；J/K 单独左移/右移。W+A/W+D 向左前/右前行走，S+A/S+D 向左后/右后倒车；摇杆横推旋转、斜推弧线行走。松开停车；空格起立/趴下，Esc 紧急停车。';
 const joystick=document.createElement('canvas');joystick.width=180;joystick.height=180;
@@ -140,12 +166,9 @@ window.addEventListener('keydown',e=>{
  if(target!==keyboardCapture&&(target?.isContentEditable||['TEXTAREA','SELECT'].includes(target?.tagName)||(target?.tagName==='INPUT'&&!['checkbox','radio','button'].includes(target.type))))return;
  if(e.code==='Escape'){e.preventDefault();release();return;}
  if(e.code==='Space'||e.key===' '){
-  e.preventDefault();if(e.repeat)return;release();
+  e.preventDefault();if(e.repeat)return;
   if(scanConsole){keyboardFeedback='扫描期间空格仅停车';return;}
-  keyboardFeedback='已收到空格：起立 / 趴下';
-  localControlError='';
-  if(live)manualPost('/manual/posture',{}).catch(e=>{localControlError=e.message;});
-  else localControlError='空格未发送：请先连接本页遥控';
+  requestPosture();
   return;
  }
  const code=directionCode(e);
@@ -161,11 +184,13 @@ window.addEventListener('keydown',e=>{
 },true);
 window.addEventListener('keyup',e=>{const code=directionCode(e);if(keyDirections[code]){e.preventDefault();keyboardFeedback='已松开 '+code.replace('Key','');pressedKeys.delete(code);heldKey=pressedKeys.size?Array.from(pressedKeys)[0]:null;updateKeys();}},true);
 window.addEventListener('blur',release);document.addEventListener('visibilitychange',()=>{if(document.hidden)release();});
-window.addEventListener('pagehide',()=>{held='stop';fetch('/manual/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({owner,sequence:controlWorker?Date.now()*1000+999:++sequence}),keepalive:true}).catch(()=>{});});
+window.addEventListener('pagehide',()=>{held='stop';fetch('/manual/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({owner,sequence:nextSequence()}),keepalive:true}).catch(()=>{});});
 setInterval(async()=>{if(controlWorker){controlWorker.postMessage({type:'intent',body:held==='stop'?null:{owner,direction:held,axes:heldAxes,armed:enabled}});return;}if(held==='stop'||pending)return;pending=true;const seq=token;try{await manualPost('/manual/control',{direction:held,axes:heldAxes,armed:enabled});}catch(e){localControlError=e.message;msg.textContent=e.message;if(seq===token)release();}finally{pending=false;}},100);
 let manualPolling=false;
 async function manualUpdate(){if(manualPolling)return;manualPolling=true;try{
  const s=await(await fetch('/manual_state?owner='+encodeURIComponent(owner),{cache:'no-store',signal:AbortSignal.timeout(1500)})).json();live=s.connected===true&&s.owns_session!==false;enabled=s.enabled===true;
+ if(s.sit_message&&s.sit_message!==lastPostureMessage){lastPostureMessage=s.sit_message;postureFeedback.textContent=(live?'姿态反馈：':'上次姿态反馈（当前未连接）：')+s.sit_message;}
+ if(!live)postureFeedback.textContent='遥控连接已断开或反馈过期，请重新连接本页遥控';
  anotherOwner=s.connected===true&&s.owns_session===false;
  directionBlocks=s.direction_blocks||{};
  const battery=freshestBattery(s.battery,typeof latest!=='undefined'?latest?.battery:null),batteryFresh=!!battery;
@@ -202,5 +227,5 @@ async function manualUpdate(){if(manualPolling)return;manualPolling=true;try{
  if(s.manual_distance_override)feedback.textContent+='\n人工保护模式：网页障碍距离拦截已解除，方向由操作者判断';
  if(!s.manual_distance_override&&Number.isFinite(s.front_stop_clearance_m))feedback.textContent+='\n前沿估算净距：'+(Number.isFinite(s.front_clearance_m)?(s.front_clearance_m*100).toFixed(1)+' 厘米':'无有效距离')+'；锁定阈值：'+(s.front_stop_clearance_m*100).toFixed(0)+' 厘米（基于配置轮廓）\n接近障碍限速后指令：'+JSON.stringify(s.limited_velocity||[0,0,0]);
  if(s.sit_message)feedback.textContent+='\n姿态切换：'+s.sit_message;
- }catch(e){live=false;enabled=false;for(const b of manualButtons())b.disabled=true;if(held!=='stop')release();msg.textContent='网页服务连接中断';}finally{manualPolling=false;}}
+ }catch(e){if(held!=='stop')release();live=false;enabled=false;for(const b of manualButtons())b.disabled=true;msg.textContent='网页服务连接中断';}finally{manualPolling=false;}}
 manualUpdate();setInterval(manualUpdate,250);

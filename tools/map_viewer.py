@@ -129,10 +129,11 @@ def read_robot_once():
             item['local_received_unix'] = time.time()
             name=mapping.report().get('map_name') if (item.get('task') or {}).get('status')==5 else scope.get('computer_map_name')
             cloud=item.get('cloud') or {}
-            if registration is not None and 0<=item['emitted_unix']-cloud.get('stamp',0)<2:
-                registration.apply(cloud,name)
+            # Persist acquisition geometry before display-only registration.
             try:cloud_archive.add(item,name)
             except (OSError,ValueError) as exc:cloud_archive.error=str(exc)
+            if registration is not None and 0<=item['emitted_unix']-cloud.get('stamp',0)<2:
+                registration.apply(cloud,name)
             item.pop('archive_depth',None)
             item['cloud_archive']={'points':len(cloud_archive.voxels),'key':cloud_archive.key,'error':cloud_archive.error}
             item['mapping_sensor']=scope.get('mapping_sensor','lidar')
@@ -161,18 +162,31 @@ def read_robot_once():
             state['connection'] = 'disconnected'
             state['ssh_exit_code'] = code
 
-def check_connection(reconnect=False):
+def check_connection(reconnect=False, ip=None):
     global connection_feedback
     if not connection_check_lock.acquire(blocking=False):raise ValueError('正在检查 SSH，请稍候')
     try:
+        if ip is not None:
+            import ipaddress,re,urllib.request
+            ip=str(ipaddress.IPv4Address(ip))
+            cfg=ROOT/'config/readonly_ssh_config'
+            old=cfg.read_text(encoding='utf-8')
+            current=re.search(r'HostName\s+(\S+)',old).group(1)
+            if ip!=current:
+                model=json.load(urllib.request.urlopen('http://127.0.0.1:8766/state?points=0',timeout=3))
+                remote=json.load(urllib.request.urlopen('http://127.0.0.1:8766/manual_state',timeout=3))
+                if model.get('busy') or remote.get('connected') or manual.started or bridge.report()['active'] or mapping.report()['active'] or explorer.report()['active']:
+                    raise ValueError('请先结束采集、遥控和任务，再切换 IP')
+                new=re.sub(r'(HostName\s+)\S+',lambda m:m.group(1)+ip,old,count=1)
+                temp=cfg.with_suffix('.tmp');temp.write_text(new,encoding='utf-8');temp.replace(cfg)
+                with lock:
+                    if readonly_process and readonly_process.poll() is None:readonly_process.terminate()
         if reconnect and (manual.started or bridge.report()['active'] or mapping.report()['active'] or explorer.report()['active']):
             raise ValueError('先结束遥控及任务切换，再重新连接数据订阅')
-        result=subprocess.run(['ssh','-F',str(ROOT/'config/readonly_ssh_config'),'-o','BatchMode=yes','-o','ConnectTimeout=5','cyberdog-current-nx','hostname'],capture_output=True,text=True,timeout=8)
-        if result.returncode:
-            error=result.stderr.lower()
-            connection_feedback=('SSH 授权失败：请按独立启动说明配置授权密钥' if 'permission denied' in error or 'bad permissions' in error else 'SSH 未连接：检查狗开机、IP 和电脑网络；不需要在网页填写密码')
-            return {'ok':False,'message':connection_feedback}
-        connection_feedback='SSH 登录成功；等待实时 ROS 数据'
+        from ssh_connection_check import check_ssh
+        result=check_ssh(ROOT)
+        connection_feedback=result['message']
+        if not result['ok']:return result
         if reconnect:
             with lock:
                 p=readonly_process
@@ -224,12 +238,24 @@ def read_robot():
                     'exit_code':p.returncode if p else None,'error':state.get('stream_error')})+'\n')
         time.sleep(3)
 
+from module_proxy import proxy_module
+from portfolio_store import portfolio_manifest, portfolio_zip, remove_work
+
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
+        model_manual=self.path.startswith('/model/manual/')
+        if model_manual:
+            self.path=self.path[len('/model'):]
+        if self.path == '/model/connection/check':
+            self.path='/connection/check'
+        elif self.path.startswith('/model/'):
+            return proxy_module(self,'/model',8766)
+        elif self.path.startswith('/offline/'):
+            return proxy_module(self,'/offline',8768)
         global selection
         planning_acquired=False
         try:
-            if OFFLINE and self.path not in {'/exploration/target','/exploration/clear'}:
+            if OFFLINE and self.path not in {'/exploration/target','/exploration/clear','/portfolio/delete'}:
                 raise ValueError('离线只读模式：不连接机器狗，不执行建图、定位或运动')
             if self.headers.get('Origin') not in {'http://127.0.0.1:8765','http://localhost:8765'}:
                 raise ValueError('请求来源不受信任')
@@ -237,7 +263,9 @@ class Handler(BaseHTTPRequestHandler):
             if not 0<length<=4096 or self.headers.get('Content-Type')!='application/json':raise ValueError('请求格式无效')
             request=json.loads(self.rfile.read(length))
             if not isinstance(request,dict):raise ValueError('请求必须是目标对象')
-            if self.path=='/exploration/target':
+            if self.path=='/portfolio/delete':
+                response=remove_work(ROOT,request.get('id'))
+            elif self.path=='/exploration/target':
                 if explorer.report()['active']:raise ValueError('先结束自动探索会话再修改目标')
                 response={'ok':True,'exploration':exploration.set_target(exploration_snapshot(),request,OFFLINE)}
             elif self.path=='/exploration/clear':
@@ -273,7 +301,7 @@ class Handler(BaseHTTPRequestHandler):
                 selection=None;exploration.clear()
                 localization_validity.invalidate('卡住的导航任务已手动清理；请重新定位并核对实物位置')
             elif self.path in {'/connection/check','/connection/reconnect'}:
-                response=check_connection(self.path.endswith('/reconnect'))
+                response=check_connection(self.path.endswith('/reconnect'),request.get('ip'))
             elif self.path in {'/manual/connect','/manual/control','/manual/stop','/manual/disconnect','/manual/sit','/manual/posture'}:
                 if explorer.report()['active']:
                     if self.path=='/manual/stop':explorer.stop()
@@ -292,7 +320,13 @@ class Handler(BaseHTTPRequestHandler):
                         status=(snapshot.get('task') or {}).get('status')
                         auxiliary=None
                         if status==5:
-                            if not mp.get('map_name') or not any(e.get('event')=='SCANNING' for e in mp['events']):raise ValueError('建图任务由其他来源启动，请先结束后在本页启动')
+                            if not mp.get('map_name') or not any(e.get('event')=='SCANNING' for e in mp['events']):
+                                import urllib.request
+                                camera=json.load(urllib.request.urlopen('http://127.0.0.1:8766/state?points=0',timeout=3)).get('camera',{})
+                                if not camera.get('ready') or camera.get('operation')!='connect':raise ValueError('请先点击连接 SSH 并准备相机')
+                                from reconstruction_readiness import prepare_inputs
+                                checked=prepare_inputs(ROOT,False,threading.Event(),lambda p:None)
+                                if not checked.get('ready'):raise ValueError(checked.get('message','扫描输入未就绪'))
                             auxiliary=5
                         if status==7:
                             if not nav['active'] or nav.get('goal') is not None:raise ValueError('定位任务不属于本页')
@@ -383,6 +417,12 @@ class Handler(BaseHTTPRequestHandler):
         data=json.dumps(response,ensure_ascii=False).encode('utf-8')
         self.send_response(status);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
     def do_GET(self):
+        if self.path.startswith('/model/manual_state'):
+            self.path=self.path[len('/model'):]
+        if self.path.startswith('/model/'):
+            return proxy_module(self,'/model',8766)
+        if self.path.startswith('/offline/'):
+            return proxy_module(self,'/offline',8768)
         if urlsplit(self.path).path == '/manual_state':
             owner=parse_qs(urlsplit(self.path).query).get('owner',[None])[0]
             result=manual.report(owner)
@@ -433,8 +473,37 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == '/cloud/saved':
             data=json.dumps(cloud_archive.read()).encode('utf-8');content='application/json; charset=utf-8'
         elif self.path in {'/', '/index.html'}:
-            data = (ROOT/'navigation.html').read_bytes()
+            data = (ROOT/'home.html').read_bytes()
             content = 'text/html; charset=utf-8'
+        elif self.path.startswith('/portfolio/'):
+            import mimetypes
+            folder=(ROOT/'assets/portfolio').resolve()
+            name=urlsplit(self.path).path[len('/portfolio/'):] or 'index.html'
+            if name == 'manifest.json':
+                data = json.dumps(portfolio_manifest(ROOT), ensure_ascii=False).encode('utf-8')
+                content = 'application/json; charset=utf-8'
+            elif name == 'portfolio.zip':
+                data = portfolio_zip(ROOT)
+                content = 'application/zip'
+            else:
+                target=(folder/name).resolve()
+                if target.parent!=folder or not target.is_file() or name.endswith('.tmp') or name == 'portfolio.next.zip':
+                    self.send_error(404);return
+                data=target.read_bytes()
+                content=mimetypes.guess_type(str(target))[0] or 'application/octet-stream'
+        elif self.path == '/navigation':
+            data=(ROOT/'navigation.html').read_bytes()
+            content='text/html; charset=utf-8'
+        elif self.path in ('/assets/home/text-ui.css','/assets/home/text-ui.js','/assets/home/navigation-ui.js','/assets/home/navigation-ui.css','/assets/home/home-ui.js','/assets/home/home-ui.css','/assets/home/dog-color.png','/assets/home/dog-dither.png'):
+            data=(ROOT/self.path.lstrip('/')).read_bytes()
+            content='image/png' if self.path.endswith('.png') else ('text/javascript; charset=utf-8' if self.path.endswith('.js') else 'text/css; charset=utf-8')
+        elif self.path.startswith('/assets/home/dog-') and self.path.endswith('.jpg'):
+            import re
+            filename=self.path.rsplit('/',1)[-1]
+            if not re.fullmatch(r'dog-(3[3-9]|[45][0-9]|6[0-6])\.jpg',filename):
+                self.send_error(404);return
+            data=(ROOT/'assets/home'/filename).read_bytes()
+            content='image/jpeg'
         elif self.path == '/depth_live.js':
             data=(ROOT/'depth_live.js').read_bytes()
             content='text/javascript; charset=utf-8'

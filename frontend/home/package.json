@@ -1,0 +1,19 @@
+{
+  "name": "cyberdog-home-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild main.jsx --bundle --minify --format=iife --outfile=../../assets/home/home-ui.js --jsx=automatic",
+    "build:navigation": "esbuild navigation.jsx --bundle --minify --format=iife --outfile=../../assets/home/navigation-ui.js --jsx=automatic",
+    "build:text": "esbuild headings.jsx --bundle --minify --format=iife --outfile=../../assets/home/text-ui.js --jsx=automatic"
+  },
+  "dependencies": {
+    "motion": "^12.43.0",
+    "ogl": "^1.0.11",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

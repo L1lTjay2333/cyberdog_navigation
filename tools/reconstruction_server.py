@@ -81,7 +81,7 @@ class Laboratory:
                 with self.lock:self.native_photo={'busy':False,'message':str(error),'error':True}
         threading.Thread(target=job,daemon=True).start()
 
-    def start(self, seconds=30, mode='static', target_size=None):
+    def start(self, seconds=0, mode='moving', target_size=None):
         target = TargetBox(target_size) if target_size is not None else None
         if mode not in ('static', 'moving'):
             raise ValueError('未知采集模式')
@@ -165,7 +165,7 @@ class Laboratory:
             raise ValueError('原始数据存储额度已满；已保存数据保留，请结束本轮并新建采集')
         self.received_frames += 1
         if record.get('color_sample') is not None:self.color_pairs += 1
-        if self.fusion_paused:
+        if self.fusion_paused and not isinstance(self.model, StreamingModel):
             self.status = '继续保存原始数据；在线融合已暂停：'+self.fusion_paused
             return False
         try:
@@ -175,7 +175,8 @@ class Laboratory:
             self.fusion_paused = str(exc)
             self.status = '继续保存原始数据；在线融合已暂停：'+self.fusion_paused
             return False
-        self.status = '采集中：原始数据持续保存，模型独立融合；不控制机器狗'
+        self.fusion_paused = None
+        self.status = '采集中：原始数据持续保存，模型实时融合'
         if changed:
             self.samples.append({'stamp':record['stamp'],'source_age_s':record.get('source_age_s'),
                                  'translation':record['translation'],'quaternion':record['quaternion'],**self.model.stats()})
@@ -278,8 +279,10 @@ class Laboratory:
                     self.active = False
                     self.process = None
 
-    def report(self, include_points=True):
+    def report(self, include_points=True, since=None):
         with self.lock:
+            version = f'{self.session}:{self.model.accepted_frames}'
+            include_points = include_points and since != version
             streaming = isinstance(self.model,StreamingModel)
             points = self.model.preview() if streaming and include_points else [] if streaming else self.model.points()
             count = self.model.stable_count() if streaming else len(points)
@@ -288,6 +291,7 @@ class Laboratory:
                           remote=self.remote, stable_points=count, control_requests=0,
                           mode='moving_local_point_cloud' if isinstance(self.model,MovingModel) else 'static_local_point_cloud',
                           moving_supported=True, calibration_status='未完成真实尺寸校准')
+            result['model_version'] = version
             result.update(received_frames=self.received_frames, fusion_paused=self.fusion_paused,
                           unfused_frames=max(0,self.received_frames-self.model.accepted_frames))
             result['unposed_frames'] = self.unposed_archive.frames if self.unposed_archive else 0
@@ -405,8 +409,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if urlsplit(self.path).path == '/scan-manual':
-            page=(ROOT/'manual.html').read_text(encoding='utf-8').replace('<script src="/manual.js"></script>', '<script>window.SCAN_CONSOLE=true;</script><script src="/manual.js"></script>').replace('空格起立/趴下，','').replace('不依赖地图。','扫描遥控台：保持站立，空格仅停车。').replace('保留的队友地图/导航页面','返回扫描页面')
+            import re
+            nav=(ROOT/'navigation.html').read_text(encoding='utf-8')
+            panel=nav[nav.index('<div class="card" id="manual-panel">'):nav.index('</aside>',nav.index('<div class="card" id="manual-panel">'))]
+            page='<html><head><meta charset="utf-8"><style>body{background:#f4f1ea;color:#494236;font:13px system-ui;margin:8px}button{padding:9px;margin:3px;border:1px solid #cdbfa5;border-radius:8px;background:#fffaf0}canvas{max-width:110px;max-height:110px}pre,details,.note,a{display:none}input{max-width:95%}h2{font-size:16px}</style></head><body>'+panel+'<script src="/manual.js"></script></body></html>'
             self.send(page.encode('utf-8'),'text/html; charset=utf-8')
+        elif self.path == '/assets/home/text-ui.css':
+            self.send((ROOT/'assets/home/text-ui.css').read_bytes(),'text/css; charset=utf-8')
+        elif self.path == '/assets/home/text-ui.js':
+            self.send((ROOT/'assets/home/text-ui.js').read_bytes(),'text/javascript; charset=utf-8')
         elif self.path == '/manual.js':
             self.send((ROOT/'manual.js').read_bytes(),'text/javascript; charset=utf-8')
         elif urlsplit(self.path).path == '/manual_state':
@@ -417,9 +428,16 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == '/manual_transport.js':
             self.send((ROOT/'manual_transport.js').read_bytes(),'text/javascript; charset=utf-8')
         elif self.path in ('/', '/index.html'):
+            if self.headers.get('X-Console-Proxy')!='1':
+                self.send_response(302);self.send_header('Location','http://127.0.0.1:8765/model/');self.end_headers();return
             self.send((ROOT/'reconstruction.html').read_bytes(), 'text/html; charset=utf-8')
-        elif self.path == '/state':
-            self.send(json.dumps(LAB.report(), ensure_ascii=False, allow_nan=False).encode('utf-8'))
+        elif urlsplit(self.path).path == '/state':
+            query = parse_qs(urlsplit(self.path).query)
+            result = LAB.report(include_points=query.get('points', ['1'])[0] != '0',
+                                since=query.get('since', [None])[0])
+            if query.get('points', ['1'])[0] == '0':
+                result.pop('trajectory', None)
+            self.send(json.dumps(result, ensure_ascii=False, allow_nan=False).encode('utf-8'))
         elif self.path == '/model.ply':
             self.send_response(200)
             self.send_header('Content-Type','application/octet-stream')
@@ -443,18 +461,20 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(length))
             if not isinstance(data, dict):
                 raise ValueError('请求格式错误')
-            if self.path in ('/manual/connect','/manual/control','/manual/stop','/manual/disconnect'):
+            if self.path in ('/manual/connect','/manual/control','/manual/stop','/manual/disconnect','/manual/posture','/manual/sit'):
                 if self.path == '/manual/connect':
                     # Explicit operator takeover of scanning locomotion; verify real task afresh.
                     result=prepare_inputs(ROOT,False,threading.Event(),lambda p:None)
                     if not result.get('ready') or result.get('task')!={'status':5,'code':0}:
                         raise ValueError('扫描输入未就绪，不能接管扫描遥控')
                     MANUAL.connect(data.get('owner'),auxiliary_task=5)
+                elif self.path == '/manual/posture':MANUAL.posture(data)
+                elif self.path == '/manual/sit':MANUAL.sit(data)
                 elif self.path == '/manual/disconnect':MANUAL.disconnect()
                 elif self.path == '/manual/stop':MANUAL.control({**data,'direction':'stop','armed':False})
                 else:MANUAL.control(data)
             elif self.path == '/start':
-                LAB.start(data.get('seconds', 30), mode=data.get('mode','static'), **({'target_size':data['target_size']} if 'target_size' in data else {}))
+                LAB.start(data.get('seconds', 0), mode=data.get('mode','moving'), **({'target_size':data['target_size']} if 'target_size' in data else {}))
             elif self.path == '/photo/native':
                 LAB.take_native_photo(data.get('stationary'))
             elif self.path == '/camera/connect':

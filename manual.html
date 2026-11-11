@@ -1,7 +1,21 @@
 <!doctype html>
 <html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CyberDog 网页遥控</title>
-<style>body{background:#101820;color:#e8eff6;font:18px system-ui;max-width:760px;margin:24px auto;padding:12px}button{font:inherit;padding:20px;border:0;border-radius:10px;background:#2486cf;color:white;touch-action:none;user-select:none}button:disabled{background:#43515c}#pad{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:24px 0}#stop{background:#b83838}#message{color:#ffd18b}pre{white-space:pre-wrap;font:16px system-ui}a{color:#8acaff}</style>
+<style>body{background:#101820;color:#e8eff6;font:18px system-ui;max-width:760px;margin:24px auto;padding:12px}button{font:inherit;padding:20px;border:0;border-radius:10px;background:#2486cf;color:white;touch-action:none;user-select:none}button:disabled{background:#43515c}#pad{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:24px 0}#stop{background:#b83838}#message{color:#ffd18b}pre{white-space:pre-wrap;font:16px system-ui}a{color:#8acaff}
+:root{color-scheme:light}
+body{background:#f4f1ea;color:#28252d}
+p,small,#stats{color:#69636f}
+a{color:#475a85}
+button,.download{background:#e8e4dc;color:#34303b;border-color:#cbc5bb}
+button:hover:not(:disabled),.download:hover{background:#dcd7ce}
+input,select{background:#fbf9f3;color:#34303b;border:1px solid #cfc8bd;border-radius:5px}
+#status,#live-feedback{background:#e9e5dc!important;color:#44404b!important;border-color:#9299ad!important}
+canvas,iframe{border-color:#ccc5b9!important}
+.scan-remote{background:#faf8f2d9;padding:15px;border-radius:14px;border:1px solid #d5d0c8}
+.scan-main{background:#faf8f2d9;padding:15px;border-radius:14px;border:1px solid #d5d0c8}
+
+#message,#feedback,#distance{color:#635c68}
+</style>
 <h1>CyberDog 网页手动遥控</h1>
 <p class="note"><strong>W/S 前后，A/D 原地旋转，组合键弧线行走；J/K 横移。松手停车，空格起立/趴下，Esc紧急停车。</strong>前后请求上限0.5米/秒，横移0.3米/秒。</p>
 <p>不依赖地图。按住方向按钮，松开即请求停车。切出网页或失联会请求停车；现场物理急停必须可用。</p>

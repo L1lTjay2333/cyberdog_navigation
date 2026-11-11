@@ -35,11 +35,61 @@ def archive_other_maps(folder,name):
                 raise RuntimeError('Refuse non-regular/outside archive target')
             targets.append(candidate)
     if not targets:return {'backup':None,'archived':[],'map_name':name}
-    # Full backup finishes BEFORE any file is moved. Backup remains outside
-    # the active folder so the stock service cannot select its old PGM files.
-    backup=Path(tempfile.mkdtemp(prefix='computer_active_map_backup_',dir=str(folder.parent)))
-    shutil.copytree(str(folder),str(backup/'mapping'))
-    archive=backup/'old_maps';archive.mkdir()
-    for candidate in targets:shutil.move(str(candidate),str(archive/candidate.name))
-    assert_active_map(folder,name)
-    return {'backup':str(backup),'archived':[p.name for p in targets],'map_name':name}
+    result = finish_map_rotation(folder, name)
+    return dict(backup=result['previous'], archived=[p.name for p in targets], map_name=name)
+
+
+def stage_previous_map(active, emit):
+    # Keep this snapshot across failed starts; replace it only after a successful save.
+    if active.is_symlink() or not active.is_dir():
+        raise RuntimeError('Invalid active map directory')
+    if any(p.is_symlink() for p in active.rglob('*')):
+        raise RuntimeError('Symlink in active map directory')
+    pending = active.parent / 'computer_map_pending'
+    if pending.is_symlink():
+        raise RuntimeError('Invalid pending map directory')
+    if pending.exists():
+        if not (pending/'mapping'/'graph.pbstream').is_file():
+            raise RuntimeError('Incomplete previous map snapshot')
+        return
+    if not list(active.glob('*.pgm')):
+        return
+    if not (active/'graph.pbstream').is_file():
+        raise RuntimeError('Incomplete active map')
+    previous = active.parent/'computer_map_previous'
+    if previous.is_symlink() or (previous.exists() and (not (previous/'mapping'/'graph.pbstream').is_file()
+            or any(p.is_symlink() for p in previous.rglob('*')))):
+        raise RuntimeError('Invalid previous map directory')
+    tmp = Path(tempfile.mkdtemp(prefix='computer_map_stage_', dir=str(active.parent)))
+    try:
+        shutil.copytree(str(active), str(tmp/'mapping'))
+        tmp.rename(pending)
+    finally:
+        if tmp.exists():
+            shutil.rmtree(str(tmp))
+    emit('BACKUP', path=str(pending/'mapping'))
+
+
+def finish_map_rotation(active, name):
+    verify_map_files(active, name)
+    pending = active.parent/'computer_map_pending'
+    previous = active.parent/'computer_map_previous'
+    for slot in (pending, previous):
+        if slot.is_symlink() or (slot.exists() and (any(p.is_symlink() for p in slot.rglob('*')) or not (slot/'mapping'/'graph.pbstream').is_file())):
+            raise RuntimeError('Invalid map rotation slot')
+    others = [p for p in active.glob('*.pgm') if p.stem != name]
+    if others and not pending.exists():
+        raise RuntimeError('Previous snapshot missing; preserving existing maps')
+    for pgm in others:
+        for suffix in ('.pgm','.yaml','.json'):
+            path = pgm.with_suffix(suffix)
+            if path.is_symlink():
+                raise RuntimeError('Unexpected map symlink')
+            if path.is_file():
+                path.unlink()
+    assert_active_map(active, name)
+    if pending.exists():
+        if previous.exists():
+            shutil.rmtree(str(previous))
+        pending.rename(previous)
+    return dict(map_name=name, previous=str(previous) if previous.exists() else None)

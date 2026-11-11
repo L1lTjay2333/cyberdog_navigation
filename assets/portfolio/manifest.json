@@ -1,0 +1,107 @@
+[
+  {
+    "id": "chair44",
+    "title": "椅子扫描 · 初次采集",
+    "date": "2026-10-28",
+    "note": "44 帧，保留早期扫描与处理成果。椅面、细杆存在缺失。",
+    "kind": "points",
+    "points": 30414,
+    "source": "evidence/offline_runs/20261028_215851_417006/processed/points_processed.ply"
+  },
+  {
+    "id": "chair331",
+    "title": "椅子扫描 · 多视角采集",
+    "date": "2026-10-29",
+    "note": "331 帧，包含椅子与周边环境，尚有重影和缺面。",
+    "kind": "points",
+    "points": 340251,
+    "source": "evidence/offline_runs/20261029_163200_187398/processed/points_processed.ply"
+  },
+  {
+    "id": "map1640",
+    "title": "房间地图 · 第一轮",
+    "date": "2026-11-05",
+    "note": "361 帧，优化轨迹重投影。走廊夹角与重影尚未解决。",
+    "kind": "points",
+    "points": 45884,
+    "source": "evidence/room_analysis_20261105/global_pose_replay.ply",
+    "map": "map1640-map.png",
+    "floor": {
+      "file": "map1640-floor.bin",
+      "download": "map1640-display-floor.ply",
+      "height": -0.22681483711479095,
+      "area_m2": 171.68750000000003,
+      "kind": "illustrative_infill",
+      "note": "后期生成的地板补面，基于二维已观测范围，供展示参考。"
+    }
+  },
+  {
+    "id": "map1711",
+    "title": "房间地图 · 新版采集",
+    "date": "2026-11-05",
+    "note": "237 帧，保存密集位姿和相机外参。用于后续拼接优化。",
+    "kind": "points",
+    "points": 37210,
+    "source": "evidence/room_analysis_20261105_171124/global_pose_replay.ply",
+    "map": "map1711-map.png",
+    "floor": {
+      "file": "map1711-floor.bin",
+      "download": "map1711-display-floor.ply",
+      "height": -0.2314444995856721,
+      "area_m2": 154.71500000000003,
+      "kind": "illustrative_infill",
+      "note": "后期生成的地板补面，基于二维已观测范围，供展示参考。"
+    }
+  },
+  {
+    "id": "depth-20261029_162103_403862",
+    "capture_id": "20261029_162103_403862",
+    "title": "深度采集 · 16:21:03",
+    "date": "2026-10-29",
+    "kind": "points",
+    "points": 30990,
+    "note": "原始采集保存在电脑。本次采集或融合曾中断。",
+    "source": "evidence/reconstruction/20261029_162103_403862"
+  },
+  {
+    "id": "depth-20261029_162923_107730",
+    "capture_id": "20261029_162923_107730",
+    "title": "深度采集 · 16:29:23",
+    "date": "2026-10-29",
+    "kind": "points",
+    "points": 560422,
+    "note": "原始采集保存在电脑。",
+    "source": "evidence/reconstruction/20261029_162923_107730"
+  },
+  {
+    "id": "depth-20261101_151400_634737",
+    "capture_id": "20261101_151400_634737",
+    "title": "深度采集 · 15:14:00",
+    "date": "2026-11-01",
+    "kind": "points",
+    "points": 486392,
+    "note": "原始采集保存在电脑。本次采集或融合曾中断。",
+    "source": "evidence/reconstruction/20261101_151400_634737"
+  },
+  {
+    "id": "map-20261105_171124",
+    "capture_id": "20261105_171124",
+    "title": "二维地图 · 17:11:24",
+    "date": "2026-11-05",
+    "kind": "map",
+    "points": 0,
+    "map": "map-20261105_171124.png",
+    "note": "原厂保存的二维地图和建图文件已归档到电脑。",
+    "source": "evidence/live_cloud_maps/saved_maps/computer_room_20261105_171124"
+  },
+  {
+    "id": "depth-20261110_170515_605008",
+    "capture_id": "20261110_170515_605008",
+    "title": "深度采集 · 17:05:15",
+    "date": "2026-11-10",
+    "kind": "points",
+    "points": 533665,
+    "note": "425帧原始数据恢复移动融合，420帧参与，5帧位姿异常或时间间断被拒绝。尚未验证闭环及绝对精度。",
+    "source": "evidence/reconstruction/20261110_170515_605008/moving_recovery/model.ply"
+  }
+]

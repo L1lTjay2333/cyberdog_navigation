@@ -15,6 +15,7 @@ def probe(root,connect,stopped,process_callback):
     if stopped.is_set():raise InputCheckError('检查已取消')
     helper=(root/'tools/reconstruction_core.py').read_text(encoding='utf-8')
     code='import sys,types\nm=types.ModuleType("reconstruction_core");sys.modules["reconstruction_core"]=m\nexec('+repr(helper)+',m.__dict__)\n'
+    code+=(root/'tools/reconstruction_pose.py').read_text(encoding='utf-8')+'\n'
     code+='CONNECT_CAMERA='+repr(bool(connect))+'\n'+(root/'tools/reconstruction_input_probe.py').read_text(encoding='utf-8')
     command=['ssh','-F',str(root/'config/readonly_ssh_config'),'cyberdog-current-nx',
              'source /etc/mi/ros2_env.conf; python3 -u -c '+shlex.quote('import sys;exec(sys.stdin.read())')]

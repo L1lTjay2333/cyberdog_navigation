@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>作品逐帧点云</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f1e9;color:#302c26;font:15px system-ui,"Microsoft YaHei",sans-serif}
+  main{max-width:1480px;margin:auto;padding:20px clamp(14px,4vw,48px)}
+  header,.bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  header{justify-content:space-between;margin-bottom:14px}
+  h1{font-size:clamp(22px,3vw,32px);margin:6px 0}
+  a{color:#315e68}
+  button,input{font:inherit}
+  button,input[type=number]{border:1px solid #c6bba6;border-radius:7px;background:#fffdf6;color:inherit;padding:7px 11px}
+  button{cursor:pointer}
+  button:disabled{opacity:.5;cursor:default}
+  button[aria-pressed=true]{color:white;background:#315e68;border-color:#315e68}
+  #timeline{flex:1;min-width:130px;accent-color:#315e68}
+  #number{width:78px}
+  #status{margin:10px 0;min-height:23px}
+  #view{height:66vh;min-height:300px;border-radius:12px;background:#121c25;overflow:hidden;touch-action:none}
+  canvas{display:block}
+  .note{color:#61594c;margin:10px 0;line-height:1.6}
+  .mode{margin-bottom:12px}
+  @media(max-width:620px){#timeline{flex-basis:100%}#view{height:56vh}}
+</style>
+<main>
+  <header>
+    <h1 id="title">作品逐帧点云</h1>
+    <nav><a href="../portfolio/">作品集</a></nav>
+  </header>
+  <div class="bar mode">
+    <button id="raw" aria-pressed="true">原始单帧</button>
+    <button id="fused" aria-pressed="false" hidden>作品点云</button>
+    <button id="reset">恢复视角</button>
+  </div>
+  <div class="bar">
+    <button id="previous" disabled>上一帧</button>
+    <label>帧号 <input id="number" type="number" min="1" value="1" disabled></label>
+    <span id="total"></span>
+    <button id="next" disabled>下一帧</button>
+    <input id="timeline" type="range" min="1" value="1" aria-label="采集时间轴" disabled>
+  </div>
+  <p id="status" role="status" aria-live="polite">正在读取已保存的扫描记录…</p>
+  <div id="view" aria-label="可旋转的三维点云"></div>
+  <p class="note">左键旋转 · 右键平移 · 滚轮缩放 · 方向键切帧。单帧显示相机当时看到的范围，颜色表示深度。</p>
+</main>
+<script type="importmap">{"imports":{"three":"/vendor/three.module.js"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from '/vendor/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+const view = $('view');
+const status = $('status');
+const api = './frame-review/';
+const work = new URLSearchParams(location.search).get('work');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(48,1,.01,50);
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setClearColor(0x121c25);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+view.append(renderer.domElement);
+const controls = new OrbitControls(camera,renderer.domElement);
+controls.screenSpacePanning = true;
+const render = () => renderer.render(scene,camera);
+controls.addEventListener('change',render);
+new ResizeObserver(() => {
+  if (!view.clientWidth || !view.clientHeight) return;
+  renderer.setSize(view.clientWidth,view.clientHeight);
+  camera.aspect = view.clientWidth/view.clientHeight;
+  camera.updateProjectionMatrix();
+  render();
+}).observe(view);
+
+let frames = [];
+let index = 1;
+let mode = 'raw';
+let cloud;
+let request;
+let slideTimer;
+let fitRaw = true;
+let fusedPoints;
+
+function resetView(){
+  if (!cloud || !cloud.geometry.attributes.position.count) return;
+  const sphere = cloud.geometry.boundingSphere;
+  const vertical = THREE.MathUtils.degToRad(camera.fov/2);
+  const angle = Math.min(vertical,Math.atan(Math.tan(vertical)*camera.aspect));
+  const distance = Math.max(.35,sphere.radius*1.08/Math.sin(angle));
+  const direction = mode === 'raw' ? new THREE.Vector3(0,0,1) : new THREE.Vector3(1,.65,1);
+  camera.position.copy(sphere.center).addScaledVector(direction.normalize(),distance);
+  controls.target.copy(sphere.center);
+  controls.update();
+  render();
+}
+
+function replaceCloud(points, raw, fit){
+  if (cloud){
+    scene.remove(cloud);
+    cloud.geometry.dispose();
+    cloud.material.dispose();
+  }
+  const geometry = new THREE.BufferGeometry();
+  const colors = raw ? new Float32Array(points.length) : null;
+  const near = new THREE.Color('#f3c379');
+  const far = new THREE.Color('#66baf5');
+  const color = new THREE.Color();
+  if (raw){
+    for (let i=0;i<points.length;i+=3){
+      color.copy(near).lerp(far,THREE.MathUtils.clamp((points[i+2]-.15)/3.85,0,1));
+      color.toArray(colors,i);
+      points[i+1] *= -1;
+      points[i+2] *= -1;
+    }
+  }
+  if (!raw){
+    points = points.slice();
+    for (let i=0;i<points.length;i+=3){
+      const y=points[i+1];
+      points[i+1]=points[i+2];
+      points[i+2]=-y;
+    }
+  }
+  geometry.setAttribute('position',new THREE.BufferAttribute(points,3));
+  if (colors) geometry.setAttribute('color',new THREE.BufferAttribute(colors,3));
+  geometry.computeBoundingSphere();
+  cloud = new THREE.Points(geometry,new THREE.PointsMaterial({
+    size:raw ? 1.8 : 2.3, sizeAttenuation:false, vertexColors:raw,
+    color:raw ? 0xffffff : 0xbbe8ff
+  }));
+  scene.add(cloud);
+  if (fit) resetView();
+  else render();
+}
+
+function syncButtons(){
+  const raw = mode === 'raw' && frames.length > 0;
+  $('previous').disabled = !raw || index === 1;
+  $('next').disabled = !raw || index === frames.length;
+  $('number').disabled = $('timeline').disabled = !raw;
+  $('number').value = $('timeline').value = index;
+  $('raw').setAttribute('aria-pressed',mode === 'raw');
+  $('fused').setAttribute('aria-pressed',mode === 'fused');
+}
+
+async function read(path, signal){
+  const response = await fetch(api+path+(work ? '?work='+encodeURIComponent(work) : ''),{signal});
+  if (!response.ok) throw Error('读取失败，请检查本机扫描记录是否可用。');
+  return response;
+}
+
+async function showFrame(number){
+  if (!frames.length || !Number.isFinite(number)) return;
+  mode = 'raw';
+  index = Math.max(1,Math.min(frames.length,Math.round(number)));
+  syncButtons();
+  request?.abort();
+  const current = request = new AbortController();
+  status.textContent = '正在读取第 '+index+' 帧…';
+  if (cloud) cloud.visible = false;
+  render();
+  try {
+    const response = await read('frame/'+index,current.signal);
+    const points = new Float32Array(await response.arrayBuffer());
+    if (request !== current) return;
+    const frame = frames[index-1];
+    replaceCloud(points,frame.camera,fitRaw);
+    if (points.length) fitRaw = false;
+    status.textContent = '第 '+index+' / '+frames.length+' 帧 · 采集 +'+(frame.stamp-frames[0].stamp).toFixed(2)
+      +' 秒 · '+(points.length/3).toLocaleString()+' 点 · '+(frame.camera ? (frame.posed ? '有位姿 · 相机视角' : '缺位姿，仅相机视角') : '已保存的地图坐标点云');
+  } catch (error) {
+    if (request === current) status.textContent = error.message;
+  }
+}
+
+async function showFused(){
+  clearTimeout(slideTimer);
+  mode = 'fused';
+  syncButtons();
+  request?.abort();
+  const current = request = new AbortController();
+  status.textContent = '正在读取作品点云…';
+  if (cloud) cloud.visible = false;
+  render();
+  try {
+    if (!fusedPoints){
+      const response = await read('preview.bin',current.signal);
+      fusedPoints = new Float32Array(await response.arrayBuffer());
+    }
+    if (request !== current) return;
+    replaceCloud(fusedPoints,false,true);
+    fitRaw = true;
+    status.textContent = '作品点云 · '+(fusedPoints.length/3).toLocaleString()+' 点';
+  } catch (error) {
+    if (request === current) status.textContent = error.message;
+  }
+}
+
+function go(number){
+  clearTimeout(slideTimer);
+  if (!Number.isFinite(number)) return syncButtons();
+  showFrame(number);
+}
+$('reset').onclick = resetView;
+$('raw').onclick = () => go(index);
+$('fused').onclick = showFused;
+$('previous').onclick = () => go(index-1);
+$('next').onclick = () => go(index+1);
+$('number').onchange = () => go($('number').valueAsNumber);
+$('timeline').oninput = () => {
+  clearTimeout(slideTimer);
+  const number = $('timeline').valueAsNumber;
+  $('number').value = number;
+  slideTimer = setTimeout(() => showFrame(number),100);
+};
+window.addEventListener('keydown',event => {
+  if (mode !== 'raw' || event.target instanceof HTMLInputElement) return;
+  if (!['ArrowLeft','ArrowRight'].includes(event.key)) return;
+  event.preventDefault();
+  go(index+(event.key === 'ArrowLeft' ? -1 : 1));
+});
+try {
+  const manifest = await (await read('frames')).json();
+  $('title').textContent = manifest.title+' · 逐帧点云';
+  $('fused').hidden = !manifest.has_preview;
+  frames = manifest.frames;
+  if (!frames.length) throw Error('扫描记录没有保存深度帧。');
+  $('total').textContent = '/ '+frames.length;
+  $('number').max = $('timeline').max = frames.length;
+  if (mode === 'raw') go(1);
+} catch (error) {
+  if (mode === 'raw') status.textContent = error.message;
+}
+</script>
+</html>

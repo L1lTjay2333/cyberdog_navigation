@@ -32,8 +32,8 @@ def checked_pose(frame):
     return translation, quaternion / norm
 
 
-def decode_depth_frame(frame, stride=4, *, sample_depth=None):
-    translation, quaternion = checked_pose(frame)
+def project_camera_depth(frame, stride=4, *, sample_depth=None):
+    """Project valid depth pixels into optical camera coordinates."""
     if type(stride) is not int or stride < 1:
         raise ValueError('Invalid sampling stride')
     width, height, step = (frame.get(k) for k in ('width', 'height', 'step'))
@@ -70,6 +70,12 @@ def decode_depth_frame(frame, stride=4, *, sample_depth=None):
         points = np.column_stack(((u[valid]-cx)*z[valid]/fx, (v[valid]-cy)*z[valid]/fy, z[valid]))
     if not np.isfinite(points).all():
         raise ValueError('Calibration produced non-finite projected points')
+    return points
+
+
+def decode_depth_frame(frame, stride=4, *, sample_depth=None):
+    translation, quaternion = checked_pose(frame)
+    points = project_camera_depth(frame, stride, sample_depth=sample_depth)
     x, y, zq, w = quaternion
     rotation = np.array([[1-2*(y*y+zq*zq), 2*(x*y-zq*w), 2*(x*zq+y*w)],
                          [2*(x*y+zq*w), 1-2*(x*x+zq*zq), 2*(y*zq-x*w)],

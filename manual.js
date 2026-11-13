@@ -121,17 +121,17 @@ window.connectMappingControl=async()=>{
   if(anotherOwner)throw Error('其他网页持有遥控，请点击本页接管按钮');
   await new Promise(resolve=>setTimeout(resolve,200));
  }
- throw Error('建图已开启，遥控尚未就绪；请点击「连接建图遥控」重试连接');
+ throw Error('遥控连接超时，尚未收到机器人实时反馈；请检查连接后重试');
 };
 manualElement('connect').onclick=async()=>{
  try{
   if(anotherOwner){
    // Explicit button click revokes the old page first, never copies its command.
-   await manualPost('/manual/disconnect',{});
+   await manualPost('/manual/disconnect',{});anotherOwner=false;
    msg.textContent='正在停止旧网页遥控，等待释放后连接本页…';
   }
   for(let i=0;i<30;i++){
-   try{await manualPost('/manual/connect',{});localControlError='';focusControls();return;}
+   try{await window.connectMappingControl();localControlError='';return;}
    catch(e){
     if(!anotherOwner||!e.message.includes('已有另一个网页'))throw e;
     await new Promise(resolve=>setTimeout(resolve,200));
@@ -208,7 +208,7 @@ async function manualUpdate(){if(manualPolling)return;manualPolling=true;try{
  '\n坐标系：'+d.source_frame+' → '+d.target_frame:
  '当前统计无效：'+(d.reason||'等待实时扫描与TF');
  const depthMode=['depth_forward_trial','supervised_four_way_trial'].includes(s.sensor_mode);
- msg.textContent=localControlError||(!live?(s.connected?'其他网页正在遥控，请在原网页断开后连接本页':'点击“连接遥控”以查看实时状态'):enabled?'W/S前后 · A/D原地旋转 · J/K横移，松开停车':'已连接，等待开放本次实机运动权限');
+ msg.textContent=localControlError||(!live?(s.connected?'其他网页正在遥控，请在原网页断开后连接本页':(s.error|| (s.connecting?'正在等待机器人遥控反馈…':'点击“连接遥控”以查看实时状态'))):enabled?(s.forward_block_reason?'遥控在线，前进不可用：'+s.forward_block_reason:'遥控就绪：W/S 前后 · A/D 旋转 · J/K 横移'):'已连接，等待开放本次实机运动权限');
  msg.textContent+='；键盘：'+keyboardFeedback;
  for(const b of manualButtons()){
   const block=s.direction_blocks?.[b.dataset.direction]||(s.sensor_mode==='depth_forward_trial'&&b.dataset.direction!=='forward'?'当前仅开放前进':'');

@@ -9,7 +9,8 @@ import subprocess
 import sys
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
+from bicycle_frame_review import BICYCLE_WORK, frame_manifest, frame_points, saved_work
 
 ROOT=Path(__file__).resolve().parents[1]
 IDENTIFIER=re.compile(r'[0-9]{8}_[0-9]{6}_[0-9]{6}')
@@ -140,6 +141,17 @@ class Handler(BaseHTTPRequestHandler):
         path=urlsplit(self.path).path
         try:
             if path=='/':self.send_file(ROOT/'offline_reconstruction.html')
+            elif path in ('/frame-review','/bicycle-review'):self.send_file(ROOT/'bicycle_review.html')
+            elif path.startswith('/frame-review/'):
+                work_id=parse_qs(urlsplit(self.path).query).get('work',[BICYCLE_WORK])[0]
+                if path=='/frame-review/frames':self.send_json(frame_manifest(ROOT,work_id))
+                elif path=='/frame-review/preview.bin':
+                    work=saved_work(ROOT,work_id)
+                    if work['kind'] not in ('points','mesh'):raise ValueError('没有融合预览')
+                    self.send_file(ROOT/'assets/portfolio'/(work_id+'.bin'))
+                elif match:=re.fullmatch(r'/frame-review/frame/([0-9]{1,6})',path):
+                    self.send_bytes(frame_points(ROOT,work_id,int(match[1])),'application/octet-stream')
+                else:self.send_json({'error':'not found'},404)
             elif path=='/api/sessions':self.send_json({'sessions':BENCH.sessions()})
             elif path=='/api/state':self.send_json(BENCH.snapshot())
             elif path.startswith('/result/'):

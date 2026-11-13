@@ -17,6 +17,7 @@ CONNECT=bool(globals().get('CONNECT_CAMERA',False))
 rclpy.init(args=[])
 n=rclpy.create_node('reconstruction_input_check',enable_rosout=False,start_parameter_services=False)
 buffer=Buffer();listener=TransformListener(buffer,n);queue=FrameQueue()
+pose_source=ReconstructionPose(n,buffer,NS)
 info=[None];counts={'images':0,'valid_depth':0,'matched_pose':0};changes=[]
 last_valid_stamp=[0]
 last_sample=[0.]
@@ -74,7 +75,7 @@ def lookup(item):
     age=(n.get_clock().now().nanoseconds-stamp.nanoseconds)*1e-9
     if not -.05<=age<=2.:return None
     try:
-        transform=buffer.lookup_transform('vodom',message.header.frame_id,stamp)
+        transform=pose_source.lookup(message.header.frame_id,stamp)
         p,q=transform.transform.translation,transform.transform.rotation
         values=[p.x,p.y,p.z,q.x,q.y,q.z,q.w]
         tfstamp=transform.header.stamp.sec+transform.header.stamp.nanosec/1e9
@@ -106,7 +107,7 @@ try:
         rclpy.spin_once(n,timeout_sec=.05)
         counts['matched_pose']+=len(queue.ready(lookup,time.monotonic()))
         if counts['matched_pose']>=3 and counts['valid_depth']>=3:break
-    result.update(camera_ready=counts['valid_depth']>=3,ready=counts['matched_pose']>=3)
+    result.update(camera_ready=counts['valid_depth']>=3,ready=counts['matched_pose']>=3,pose_frame=pose_source.frame)
     result['task']=task_state()
     if result['ready'] and result['task']['status']!=5:
         result.update(ready=False,message='深度图正常，但原厂扫描位姿任务已停止')
@@ -118,7 +119,7 @@ try:
         result['message']=('深度相机未开启，请点击连接/检查深度相机' if result.get('camera_state')!=3
                            else '相机报告已启用，但未收到足够的新鲜有效深度帧，请检查设备输入')
     else:
-        result['message']=('深度相机正常，但当前扫描任务未提供同时间位姿，暂不能开始测试'
+        result['message']=('深度相机正常，暂无同时间位姿；可保存原始深度，融合等待位姿恢复'
                            if result['task']['status']==5 else '深度相机正常，尚缺扫描位姿输入；请点击连接/检查深度相机')
 except Exception as error:result.update(ready=False,message=str(error))
 finally:

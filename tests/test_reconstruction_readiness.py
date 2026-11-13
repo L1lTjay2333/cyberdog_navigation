@@ -27,6 +27,14 @@ class StartGateTests(unittest.TestCase):
         check.assert_called_once();capture.assert_not_called()
         self.assertIs(lab.model,old);self.assertFalse(lab.preparing);self.assertFalse(lab.running_job)
 
+    def test_missing_pose_still_starts_raw_capture(self):
+        lab=self.old_lab()
+        result={'ready':False,'camera_ready':True,'task':{'status':5,'code':0}}
+        with patch.object(server,'prepare_inputs',return_value=result),patch.object(lab,'capture') as capture:
+            lab.prepare_job(False,8,'moving')
+        capture.assert_called_once_with(8)
+        self.assertTrue(lab.active)
+
     def test_every_start_rechecks_even_if_previous_result_was_ready(self):
         lab=self.old_lab();lab.camera={'ready':True,'message':'old success'}
         with patch.object(server,'prepare_inputs',return_value={'ready':True,'camera_ready':True,'message':'fresh'}) as check,patch.object(lab,'capture',side_effect=lambda seconds:setattr(lab,'active',False)) as capture,patch.object(server.threading,'Thread'):

@@ -84,7 +84,7 @@ body{background:radial-gradient(ellipse at 10% 15%,#fffdf5,transparent 65%),radi
 <div><button id="robot-connection-check">检查机器人连接</button><span id="robot-connection-feedback" role="status"></span></div>
 <script>document.getElementById('robot-connection-check').onclick=async()=>{const output=document.getElementById('robot-connection-feedback');output.textContent='正在检查…';try{const reply=await fetch('/connection/check',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const result=await reply.json();output.textContent=result.message||result.error;}catch(e){output.textContent='连接检查失败，请检查电脑后台';}};</script>
 <div><button id="camera-connect">连接/检查深度相机</button><button id="start">开始3D扫描 · 实时融合</button><label>移动采集时长 <select id="moving-duration"><option value="0" selected>持续采集 · 手动停止</option><option value="60">1分钟</option><option value="180">3分钟</option><option value="300">5分钟</option></select></label><button id="moving-start" disabled>开始持续移动采集</button><button id="stop">停止本次采集</button><a class="download" href="/model.ply" download="cyberdog_local_model.ply">导出PLY模型</a><a href="http://127.0.0.1:8765/">返回导航网页</a></div>
-<div id="live-feedback" role="status" aria-live="polite" style="padding:14px;background:#173247;border:2px solid #58bcff;border-radius:8px;margin:10px 0;font-size:18px">正在读取采集状态…</div><p><a href="http://127.0.0.1:8768/">打开已采集数据的离线处理与灰模</a></p>
+<div id="live-feedback" role="status" aria-live="polite" style="padding:14px;background:#173247;border:2px solid #58bcff;border-radius:8px;margin:10px 0;font-size:18px">正在读取采集状态…</div><p><a href="http://127.0.0.1:8768/">打开已采集数据的离线处理与灰模</a>　<a href="/offline/bicycle-review">自行车 · 逐帧点云</a></p>
 <p><a href="http://127.0.0.1:8769/near_range/">查看 10 月 29 日扫描：原范围 / 2 米近景建模对照</a>（已保存结果，需本机对照服务运行）</p>
 <div><label><input id="target-only" type="checkbox" checked>仅保留中心目标</label> 范围尺寸（米）：<label>X <input id="target-x" type="number" min="0.1" max="3" step="0.1" value="1" style="width:65px"></label><label>Y <input id="target-y" type="number" min="0.1" max="3" step="0.1" value="1" style="width:65px"></label><label>Z <input id="target-z" type="number" min="0.1" max="3" step="0.1" value="1.2" style="width:65px"></label><p>开始前将目标实体对准相机画面中央；以首帧中央深度锁定固定空间范围，绕行时不随狗头转动。原始帧保留供离线修正，在线模型裁剪范围外的深度；这不是自动物体识别，范围内的背景仍可能保留。</p></div><div><label><input id="photo-stationary" type="checkbox">机器狗已停稳</label><button id="native-photo">停稳拍一张 · 原生最高分辨率</button><span id="native-photo-status">照片单独保存到电脑，拍完后再继续绕行</span></div><p id="capture-guide">移动试验：开始后先静止5秒，看到有效接收帧和稳定模型点增长，再由你低速转动或移动；已保存的块继续保留。位姿异常会暂停在线融合，原始数据继续保存；短暂缺帧会等待恢复，采集功能不能让机器狗停车。请先松开方向键或点击左侧停止按钮停车。</p>
 <p><small>连接会准备空闲的相机和扫描输入，不控制行走；请勿同时启停手机建图/导航。</small></p><p id="camera-status">相机尚未检查；每次开始都会先检查有效深度图和同时间位姿。连接会准备相机和扫描输入，不控制行走。</p><p id="status">等待连接本地建模服务</p><p id="head-reference">狗头参考：等待采集位姿。蓝色狗头表示相机位置，箭头表示相机朝前；均为采集时参考。</p><canvas id="view" width="1100" height="650"></canvas><div><button id="fit">适配模型</button><button id="initial">初始方向</button><button id="level">水平视角</button><button id="top">XY俯视</button><small>拖动旋转 · 滚轮缩放 · 坐标为局部vodom，网格不是已标定地板</small></div><div id="stats"></div><section id="scan-remote"><h2>电脑扫描遥控台</h2><p>扫描期间由电脑操控，不再在手机启停建图。点击下方“连接遥控”，再点击键盘输入框；W/S前后，A/D转向，J/K横移，松手停车。停止采集和停止行走是两个独立操作。</p><iframe title="电脑扫描遥控台" src="/scan-manual" style="width:100%;height:800px;border:1px solid #436680;border-radius:10px"></iframe></section></main>
@@ -151,11 +151,11 @@ document.getElementById('native-photo').onclick=()=>act('/photo/native',{station
 document.getElementById('camera-connect').onclick=()=>act('/camera/connect',{});document.getElementById('start').onclick=()=>act('/start',{seconds:0,mode:'moving',...targetOptions()});const duration=document.getElementById('moving-duration');duration.onchange=()=>{document.getElementById('moving-start').textContent=Number(duration.value)===0?'开始持续移动采集':'开始'+duration.value+'秒移动采集';};document.getElementById('moving-start').onclick=()=>act('/start',{seconds:Number(duration.value),mode:'moving',...targetOptions()});document.getElementById('stop').onclick=()=>act('/stop',{});
 let lastReceived=-1,lastReceiveChange=Date.now(),feedbackSession=null;
 function showLiveFeedback(d){
- const box=document.getElementById('live-feedback'),count=d.received_frames??d.accepted_frames??0;
+ const box=document.getElementById('live-feedback'),count=(d.received_frames??d.accepted_frames??0)+(d.unposed_frames||0);
  if(feedbackSession!==d.session||count!==lastReceived){lastReceiveChange=Date.now();lastReceived=count;feedbackSession=d.session;}
  const age=Math.floor((Date.now()-lastReceiveChange)/1000),running=d.active;
- const receiving=running?(age<3?'正在接收数据':'等待新帧 · '+age+'秒未增长'):(d.preparing?'正在检查相机':'本轮采集已结束');
- const fusion=d.fusion_paused?'模型更新已暂停，后续原始帧仍保留，待离线配准':'模型随有效帧更新';
+ const receiving=running?(age<3?'正在接收数据':'等待新帧 · '+age+'秒未增长'):(d.preparing?'正在检查相机':!d.session?'尚未开始采集':count===0?'本轮未收到数据':'本轮采集已结束');
+ const fusion=!(d.accepted_frames>0)?'尚无可融合帧':d.fusion_paused?'模型更新已暂停，后续原始帧仍保留，待离线配准':'模型随有效帧更新';
  box.textContent=receiving+' ｜ 已保存 '+count+' 帧 ｜ 待补位姿 '+(d.unposed_frames||0)+' 帧 ｜ 已融合 '+(d.accepted_frames??0)+' 帧 ｜ '+fusion+' ｜ 页面刷新 '+new Date().toLocaleTimeString();
  box.style.borderColor=d.fusion_paused?'#ffb454':running?'#58d6a0':'#58bcff';
 }
@@ -171,7 +171,36 @@ const input=document.createElement('input'); input.type='text';input.placeholder
 button.textContent='连接 SSH 并准备相机';
 const root=location.protocol+'//'+location.hostname+':8765';
 async function post(path,body){const r=await fetch(root+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(60000)});const d=await r.json();if(!r.ok||!d.ok)throw Error(d.message||d.error||'连接失败');return d;}
-async function connect(){button.disabled=true;try{feedback.textContent='正在验证 SSH…';await post(['','connection','check'].join(String.fromCharCode(47)),{ip:input.value.trim()});localStorage.setItem('cyberdog-ip',input.value.trim());feedback.textContent='SSH 已连接，正在开启深度相机和准备扫描位姿…';await post(['','model','camera','connect'].join(String.fromCharCode(47)),{});for(let i=0;i<90;i++){await new Promise(r=>setTimeout(r,1000));const d=await(await fetch(root+['','model','state?points=0'].join(String.fromCharCode(47)),{cache:'no-store',signal:AbortSignal.timeout(5000)})).json();if(d.preparing)continue;if(!d.camera?.ready)throw Error('SSH 已连接；'+(d.camera?.message||d.status));feedback.textContent='相机已就绪，正在连接共享遥控…';const owner=sessionStorage.getItem('cyberdog-control-owner')||crypto.randomUUID();sessionStorage.setItem('cyberdog-control-owner',owner);await post(['','manual','connect'].join(String.fromCharCode(47)),{owner});feedback.textContent='SSH、相机与共享遥控已连接；可切换地图或3D页面操作';return;}throw Error('相机准备超时，请查看相机状态');}catch(e){feedback.textContent=e.message;}finally{button.disabled=false;}}
+async function connect(){
+ button.disabled=true;
+ try{
+  feedback.textContent='正在验证 SSH…';
+  await post(['','connection','check'].join(String.fromCharCode(47)),{ip:input.value.trim()});
+  localStorage.setItem('cyberdog-ip',input.value.trim());
+  const owner=sessionStorage.getItem('cyberdog-control-owner')||crypto.randomUUID();
+  sessionStorage.setItem('cyberdog-control-owner',owner);
+  feedback.textContent='SSH 已连接，正在等待遥控实时反馈…';
+  await post(['','manual','connect'].join(String.fromCharCode(47)),{owner});
+  let manual=null;
+  for(let i=0;i<80;i++){
+   manual=await(await fetch(root+['','manual_state?owner='+encodeURIComponent(owner)].join(String.fromCharCode(47)),{cache:'no-store',signal:AbortSignal.timeout(3000)})).json();
+   if(manual.connected&&manual.owns_session)break;
+   if(manual.error)throw Error(manual.error);
+   await new Promise(r=>setTimeout(r,250));
+  }
+  if(!manual?.connected||!manual?.owns_session)throw Error('SSH 已连接，但遥控实时反馈未就绪，请重试遥控连接');
+  const controlMessage=manual.forward_block_reason?'遥控在线；'+manual.forward_block_reason:'共享遥控已就绪';
+  feedback.textContent=controlMessage+'；正在准备相机…';
+  await post(['','model','camera','connect'].join(String.fromCharCode(47)),{});
+  for(let i=0;i<90;i++){
+   await new Promise(r=>setTimeout(r,1000));
+   const d=await(await fetch(root+['','model','state?points=0'].join(String.fromCharCode(47)),{cache:'no-store',signal:AbortSignal.timeout(5000)})).json();
+   if(d.preparing)continue;
+   feedback.textContent=controlMessage+'；'+(d.camera?.ready?'相机与扫描位姿已就绪':d.camera?.message||d.status||'扫描输入未就绪');return;
+  }
+  throw Error('相机准备超时；请查看遥控区的实时连接状态');
+ }catch(e){feedback.textContent=e.message;}finally{button.disabled=false;}
+}
 button.onclick=connect;
 if(!model)document.getElementById('sshreconnect').onclick=connect;
 })();

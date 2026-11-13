@@ -318,16 +318,10 @@ class Handler(BaseHTTPRequestHandler):
                     if self.path=='/manual/connect':
                         with lock:snapshot=dict(state)
                         status=(snapshot.get('task') or {}).get('status')
-                        auxiliary=None
-                        if status==5:
-                            if not mp.get('map_name') or not any(e.get('event')=='SCANNING' for e in mp['events']):
-                                import urllib.request
-                                camera=json.load(urllib.request.urlopen('http://127.0.0.1:8766/state?points=0',timeout=3)).get('camera',{})
-                                if not camera.get('ready') or camera.get('operation')!='connect':raise ValueError('请先点击连接 SSH 并准备相机')
-                                from reconstruction_readiness import prepare_inputs
-                                checked=prepare_inputs(ROOT,False,threading.Event(),lambda p:None)
-                                if not checked.get('ready'):raise ValueError(checked.get('message','扫描输入未就绪'))
-                            auxiliary=5
+                        # Manual movement does not require reconstruction TF/pose readiness.
+                        # Stock scanning (5) is compatible with supervised manual movement,
+                        # including when camera preparation starts it after this connection.
+                        auxiliary=5
                         if status==7:
                             if not nav['active'] or nav.get('goal') is not None:raise ValueError('定位任务不属于本页')
                             auxiliary=7

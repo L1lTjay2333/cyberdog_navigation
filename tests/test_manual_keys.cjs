@@ -2,14 +2,15 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
 const events={},docEvents={},buttons=[],elements={},timers={};let bodies=[];
 for(const id of ['message','feedback','distance','connect','disconnect','stop'])elements[id]={};
 elements.connect.insertAdjacentElement=(_,element)=>{elements[element.id]=element;};
-const context={console,crypto:{randomUUID:()=> 'keyboard_test_owner'},
+const storage=new Map();
+const context={console,AbortSignal,sessionStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},crypto:{randomUUID:()=> 'keyboard_test_owner'},
  document:{hidden:false,getElementById:id=>elements[id],querySelectorAll:()=>buttons,
-           createElement:()=>({style:{},setAttribute(){},addEventListener(){},focus(){},insertAdjacentElement(){},getContext:()=>({clearRect(){},beginPath(){},arc(){},stroke(){},fill(){}})}),
+           createElement:()=>({style:{},setAttribute(){},addEventListener(){},focus(){},insertAdjacentElement(){},after(){},getContext:()=>({clearRect(){},beginPath(){},arc(){},stroke(){},fill(){}})}),
            addEventListener:(name,fn)=>docEvents[name]=fn},
  window:{addEventListener:(name,fn)=>events[name]=fn},
  setInterval:(fn,ms)=>{timers[ms]=fn;},fetch:async(path,opts)=>{
-  if(opts)bodies.push({path,...JSON.parse(opts.body)});
-  return {json:async()=>opts?{ok:true}:{connected:true,enabled:false}};
+  if(opts?.body)bodies.push({path,...JSON.parse(opts.body)});
+  return {json:async()=>opts?.body?{ok:true}:{connected:true,enabled:false}};
  }};
 vm.createContext(context);vm.runInContext(fs.readFileSync('manual.js','utf8'),context);
 function key(code,extra={}){return {code,target:{tagName:'BODY'},preventDefault(){},...extra};}
@@ -33,10 +34,11 @@ function read(expr){return vm.runInContext(expr,context);}
  events.keydown(key('KeyW'));events.keydown(key('KeyJ'));assert.equal(read('held'),'stop');events.keyup(key('KeyJ'));events.keyup(key('KeyW'));
  events.keydown(key('KeyW',{repeat:true}));assert.equal(read('held'),'stop');
  events.keydown(key('KeyW',{target:{tagName:'INPUT'}}));assert.equal(read('held'),'stop');
- events.keydown(key('KeyW'));events.keydown(key('Space'));assert.equal(read('held'),'stop');
+ events.keydown(key('KeyW'));events.keydown(key('Space'));assert.equal(read('held'),'stop');await new Promise(setImmediate);
  assert.ok(bodies.some(b=>b.path==='/manual/posture'),'Space sends posture request once');
  events.keydown(key('KeyW'));events.blur();assert.equal(read('held'),'stop');
  events.keydown(key('KeyW'));context.document.hidden=true;docEvents.visibilitychange();assert.equal(read('held'),'stop');
  assert.ok(bodies.filter(x=>x.path==='/manual/stop').length>=8);
  console.log('PASS: WASD mapping, release, multi-key stop, repeat/input guard, space, blur/hidden');
 })().catch(e=>{console.error(e);process.exitCode=1;});
+

@@ -117,7 +117,7 @@ a,.stage-label,#status{color:#475a85}
 #manual-panel>canvas{width:72px!important;height:72px!important;margin:4px auto!important}
 #manual-panel button{padding:5px;margin-bottom:3px;font-size:10px}
 #manual-panel>div{gap:4px!important;margin-bottom:5px!important}
-#manual-panel #control-message{max-height:28px;overflow:hidden}
+#manual-panel #control-message{max-height:84px;overflow:auto;white-space:normal}
 #manual-panel{padding:9px}
 }
 
@@ -395,7 +395,36 @@ const input=document.createElement('input'); input.type='text';input.placeholder
 button.textContent='连接 SSH 并准备相机';
 const root=location.protocol+'//'+location.hostname+':8765';
 async function post(path,body){const r=await fetch(root+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(60000)});const d=await r.json();if(!r.ok||!d.ok)throw Error(d.message||d.error||'连接失败');return d;}
-async function connect(){button.disabled=true;try{feedback.textContent='正在验证 SSH…';await post(['','connection','check'].join(String.fromCharCode(47)),{ip:input.value.trim()});localStorage.setItem('cyberdog-ip',input.value.trim());feedback.textContent='SSH 已连接，正在开启深度相机和准备扫描位姿…';await post(['','model','camera','connect'].join(String.fromCharCode(47)),{});for(let i=0;i<90;i++){await new Promise(r=>setTimeout(r,1000));const d=await(await fetch(root+['','model','state?points=0'].join(String.fromCharCode(47)),{cache:'no-store',signal:AbortSignal.timeout(5000)})).json();if(d.preparing)continue;if(!d.camera?.ready)throw Error('SSH 已连接；'+(d.camera?.message||d.status));feedback.textContent='相机已就绪，正在连接共享遥控…';const owner=sessionStorage.getItem('cyberdog-control-owner')||crypto.randomUUID();sessionStorage.setItem('cyberdog-control-owner',owner);await post(['','manual','connect'].join(String.fromCharCode(47)),{owner});feedback.textContent='SSH、相机与共享遥控已连接；可切换地图或3D页面操作';return;}throw Error('相机准备超时，请查看相机状态');}catch(e){feedback.textContent=e.message;}finally{button.disabled=false;}}
+async function connect(){
+ button.disabled=true;
+ try{
+  feedback.textContent='正在验证 SSH…';
+  await post(['','connection','check'].join(String.fromCharCode(47)),{ip:input.value.trim()});
+  localStorage.setItem('cyberdog-ip',input.value.trim());
+  const owner=sessionStorage.getItem('cyberdog-control-owner')||crypto.randomUUID();
+  sessionStorage.setItem('cyberdog-control-owner',owner);
+  feedback.textContent='SSH 已连接，正在等待遥控实时反馈…';
+  await post(['','manual','connect'].join(String.fromCharCode(47)),{owner});
+  let manual=null;
+  for(let i=0;i<80;i++){
+   manual=await(await fetch(root+['','manual_state?owner='+encodeURIComponent(owner)].join(String.fromCharCode(47)),{cache:'no-store',signal:AbortSignal.timeout(3000)})).json();
+   if(manual.connected&&manual.owns_session)break;
+   if(manual.error)throw Error(manual.error);
+   await new Promise(r=>setTimeout(r,250));
+  }
+  if(!manual?.connected||!manual?.owns_session)throw Error('SSH 已连接，但遥控实时反馈未就绪，请重试遥控连接');
+  const controlMessage=manual.forward_block_reason?'遥控在线；'+manual.forward_block_reason:'共享遥控已就绪';
+  feedback.textContent=controlMessage+'；正在准备相机…';
+  await post(['','model','camera','connect'].join(String.fromCharCode(47)),{});
+  for(let i=0;i<90;i++){
+   await new Promise(r=>setTimeout(r,1000));
+   const d=await(await fetch(root+['','model','state?points=0'].join(String.fromCharCode(47)),{cache:'no-store',signal:AbortSignal.timeout(5000)})).json();
+   if(d.preparing)continue;
+   feedback.textContent=controlMessage+'；'+(d.camera?.ready?'相机与扫描位姿已就绪':d.camera?.message||d.status||'扫描输入未就绪');return;
+  }
+  throw Error('相机准备超时；请查看遥控区的实时连接状态');
+ }catch(e){feedback.textContent=e.message;}finally{button.disabled=false;}
+}
 button.onclick=connect;
 if(!model)document.getElementById('sshreconnect').onclick=connect;
 })();

@@ -25,6 +25,8 @@ class ManualBridge:
             if self.started:
                 if self.owner!=owner:raise ValueError('已有另一个网页持有遥控会话')
                 return
+            self.state={'connected':False,'active':False,'enabled':False}
+            self.last_state=0.
             self.owner=owner;self.sequence=-1;self.owner_seen=time.monotonic()
             self.auxiliary_task=auxiliary_task
             self.started = True
@@ -73,7 +75,9 @@ class ManualBridge:
                     battery=None,motion_status=None,reason='遥控连接未就绪，请连接本页遥控',
                     forward_block_reason='遥控连接未就绪',
                     direction_blocks={d:'遥控连接未就绪' for d in result.get('direction_blocks',{})})
-            result['enabled'] = self.enabled() and result.get('enabled') is True
+            result['enabled'] = result['connected'] and self.enabled() and result.get('enabled') is True
+            result['connecting'] = self.started and not result['connected']
+            result['error'] = self.state.get('error','')
             result['requested_direction'] = self.command['direction']
             if owner is not None:result['owns_session']=self.owner==owner and self.owner is not None
             return result

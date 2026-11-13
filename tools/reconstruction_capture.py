@@ -20,6 +20,7 @@ rclpy.init(args=[])
 node = rclpy.create_node('readonly_static_reconstruction', enable_rosout=False, start_parameter_services=False)
 buffer = Buffer()
 listener = TransformListener(buffer, node)
+pose_source=ReconstructionPose(node,buffer,namespace,globals().get('POSE_FRAME'))
 queue = FrameQueue()
 calibration = [None]
 last_sample = [0.]
@@ -62,7 +63,8 @@ def retain_unposed(item, reason):
     emit(dict(event='unposed_depth',reason=reason,stamp=item['stamp'],source_frame=msg.header.frame_id,
               width=int(msg.width),height=int(msg.height),step=int(msg.step),encoding=msg.encoding,
               bigendian=bool(msg.is_bigendian),intrinsics=[float(info.p[i]) for i in (0,5,2,6)],
-              depth_zlib_b64=base64.b64encode(zlib.compress(bytes(msg.data),1)).decode('ascii')))
+              depth_zlib_b64=base64.b64encode(zlib.compress(bytes(msg.data),1)).decode('ascii'),
+              color_sample=color_pair(item['stamp'])))
 queue.on_discard=retain_unposed
 
 
@@ -102,7 +104,7 @@ def lookup(item):
         return None
     try:
         # Local full-pose reconstruction, independent of stock global map ownership.
-        tf = buffer.lookup_transform('vodom', msg.header.frame_id, stamp)
+        tf = pose_source.lookup(msg.header.frame_id,stamp)
         p, q = tf.transform.translation, tf.transform.rotation
         values = [p.x, p.y, p.z, q.x, q.y, q.z, q.w]
         if not all(math.isfinite(v) for v in values):
@@ -120,7 +122,7 @@ subs = [node.create_subscription(CameraInfo, namespace+'/camera/depth/camera_inf
 started = time.monotonic()
 last_sent = started
 last_warning = started
-emit({'event': 'started', 'frame': 'vodom', 'seconds': seconds, 'control_requests': 0})
+emit({'event': 'started', 'frame': pose_source.frame, 'seconds': seconds, 'control_requests': 0})
 try:
     while seconds == 0 or time.monotonic()-started < seconds:
         rclpy.spin_once(node, timeout_sec=.02)
@@ -129,7 +131,7 @@ try:
             if any(not math.isfinite(float(x)) for x in info.p) or len(info.p) != 12 or info.p[3] != 0 or info.p[7] != 0:
                 counts['bad_time_or_calibration'] += 1
                 continue
-            emit(dict(pose, event='depth', stamp=item['stamp'], frame='vodom',
+            emit(dict(pose, event='depth', stamp=item['stamp'], frame=pose_source.frame,
                       source_frame=msg.header.frame_id, width=int(msg.width), height=int(msg.height),
                       step=int(msg.step), encoding=msg.encoding, bigendian=bool(msg.is_bigendian),
                       intrinsics=[float(info.p[i]) for i in (0,5,2,6)],
@@ -140,7 +142,7 @@ try:
             last_sent = time.monotonic()
         if time.monotonic()-started > 6 and time.monotonic()-last_sent > 3 and time.monotonic()-last_warning > 5:
             message = ('深度相机没有输出图像；请检查原厂相机状态，先不要移动' if counts['images'] == 0 else
-                       '收到深度图但没有同时间的vodom位姿；请先在导航页启动新场地扫描，先不要移动')
+                       '原始深度持续保存；尚无同时间建图/视觉里程计位姿，融合等待恢复')
             emit({'event':'waiting','message':message,'counts':counts,'control_requests':0})
             last_warning = time.monotonic()
     for _,item in queue.pending:retain_unposed(item,'capture_finished_before_pose')

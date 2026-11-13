@@ -41,3 +41,19 @@ class ManualBridgeTests(unittest.TestCase):
         self.assertIsNone(report['battery']);self.assertIsNone(report['motion_status'])
         self.assertNotIn('充电',report['reason'])
         self.assertIn('未就绪',report['direction_blocks']['forward'])
+
+    def test_stale_feedback_is_never_motion_enabled(self):
+        self.b.enabled=lambda:True
+        self.b.state.update(enabled=True)
+        self.b.last_state-=2
+        self.assertFalse(self.b.report()['enabled'])
+
+    def test_reconnect_clears_old_success_and_error(self):
+        from unittest.mock import patch
+        self.b.state.update(error='old failure',enabled=True)
+        with patch('manual_bridge.threading.Thread'):
+            self.b.connect('test_browser',5)
+        result=self.b.report('test_browser')
+        self.assertFalse(result['connected'])
+        self.assertTrue(result['connecting'])
+        self.assertEqual(result['error'],'')

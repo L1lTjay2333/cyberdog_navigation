@@ -3,7 +3,7 @@
 <link rel="stylesheet" href="./portfolio-cards.css"><script src="./portfolio-cards.js"></script>
 <script type="importmap">{"imports":{"three":"./three.module.js"}}</script>
 <header><h1>CyberDog · 作品集</h1><div><a href="/">← 返回主页</a>　<a href="./portfolio.zip" download>下载作品集完整包</a></div></header>
-<main><nav id="cards" class="cards" aria-label="作品选择"></nav><section class="viewer"><h2 id="title">加载作品…</h2><p id="note"></p><div id="scene" aria-label="可旋转的三维作品"></div><div class="tools"><button id="reset">恢复视角</button><a id="download" download>下载原始 PLY</a><label id="floor-control" hidden><input id="floor-toggle" type="checkbox" checked> 展示补面</label><a id="floor-download" hidden download>下载展示补面 PLY</a><span>左键旋转 · 右键平移 · 滚轮缩放</span></div><p id="floor-note" style="color:#8c6842" hidden>地板为后期生成的展示补面，可关闭对照实测点云。</p><p id="loading" role="status"></p><img id="map" alt="本次保存的二维地图" hidden></section></main>
+<main><nav id="cards" class="cards" aria-label="作品选择"></nav><section class="viewer"><h2 id="title">加载作品…</h2><p id="note"></p><p><a id="review" hidden>查看本作品逐帧点云</a></p><div id="scene" aria-label="可旋转的三维作品"></div><div class="tools"><button id="reset">恢复视角</button><a id="download" download>下载原始 PLY</a><label id="floor-control" hidden><input id="floor-toggle" type="checkbox" checked> 展示补面</label><a id="floor-download" hidden download>下载展示补面 PLY</a><span>左键旋转 · 右键平移 · 滚轮缩放</span></div><p id="floor-note" style="color:#8c6842" hidden>地板为后期生成的展示补面，可关闭对照实测点云。</p><p id="loading" role="status"></p><img id="map" alt="本次保存的二维地图" hidden></section></main>
 <script type="module">
 import * as THREE from 'three';
 import {OrbitControls} from './OrbitControls.js';
@@ -25,6 +25,9 @@ renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera)})
 const works=await(await fetch('./manifest.json')).json();
 async function select(work){
  const current=++version;
+ const review=document.getElementById('review');
+ review.href='/offline/frame-review?work='+encodeURIComponent(work.id);
+ review.hidden=false;
  const isCloud = work.kind !== 'map' && work.kind !== 'raw';
  document.querySelector('.viewer .tools').hidden = !isCloud;
  document.querySelector('.viewer .tools').style.display = isCloud ? '' : 'none';
@@ -82,7 +85,7 @@ window.mountPortfolioCards(works, select, remaining=>{
  document.getElementById('loading').textContent='';
  container.style.display='none';
  document.querySelector('.viewer .tools').style.display='none';
- for(const id of ['download','floor-control','floor-download','floor-note','map'])document.getElementById(id).hidden=true;
+ for(const id of ['review','download','floor-control','floor-download','floor-note','map'])document.getElementById(id).hidden=true;
 });
 if(works.length)select(works[0]);else document.getElementById('title').textContent='作品集为空';
 </script></html>

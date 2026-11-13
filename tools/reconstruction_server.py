@@ -115,7 +115,8 @@ class Laboratory:
             with self.lock:
                 self.camera=result
                 self.status=result.get('message','输入检查结束')
-            if self.stopped.is_set() or not result.get('ready') or seconds is None:return
+            capture_ready=result.get('ready') or (result.get('camera_ready') and result.get('task',{}).get('status') in (5,101) and result.get('task',{}).get('code')==0)
+            if self.stopped.is_set() or not capture_ready or seconds is None:return
             with self.lock:
                 if self.stopped.is_set():return
                 self.begin_capture(seconds,mode)
@@ -199,6 +200,8 @@ class Laboratory:
                     self.model = StreamingModel(output/'submaps')
             helper = (ROOT/'tools/reconstruction_core.py').read_text(encoding='utf-8')
             code = 'import sys,types\nm=types.ModuleType("reconstruction_core");sys.modules["reconstruction_core"]=m\nexec('+repr(helper)+',m.__dict__)\n'
+            code += (ROOT/'tools/reconstruction_pose.py').read_text(encoding='utf-8')+'\n'
+            code += 'POSE_FRAME='+repr(self.camera.get('pose_frame'))+'\n'
             code += 'CAPTURE_SECONDS='+str(seconds)+'\n'+(ROOT/'tools/reconstruction_capture.py').read_text(encoding='utf-8')
             command = ['ssh', '-F', str(ROOT/'config/readonly_ssh_config'), 'cyberdog-current-nx',
                        'source /etc/mi/ros2_env.conf; python3 -u -c '+shlex.quote('import sys;exec(sys.stdin.read())')]
@@ -219,7 +222,9 @@ class Laboratory:
                         raise ValueError('采集数据超过单帧上限')
                     record = json.loads(line)
                     if record.get('event') == 'unposed_depth':
-                        self.unposed_archive.append(record)
+                        with self.lock:
+                            self.unposed_archive.append(record)
+                            self.status='原始深度持续保存；等待同时间位姿，暂未融合这些帧'
                         continue
                     if record.get('event') == 'depth':
                         if abs(record.get('tf_stamp', 0)-record['stamp']) > 1e-6:
